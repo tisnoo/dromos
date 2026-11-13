@@ -65,6 +65,24 @@ MIGRATIONS = [
         status TEXT NOT NULL CHECK (status IN ('proposed', 'applied', 'rejected'))
     );
     """,
+    """
+    CREATE TABLE oauth_clients (
+        client_id TEXT PRIMARY KEY,
+        info TEXT NOT NULL,
+        created_at TEXT NOT NULL
+    );
+    CREATE TABLE oauth_tokens (
+        token_hash TEXT PRIMARY KEY,
+        kind TEXT NOT NULL CHECK (kind IN ('access', 'refresh')),
+        grant_id TEXT NOT NULL,
+        client_id TEXT NOT NULL,
+        scopes TEXT NOT NULL,
+        resource TEXT,
+        expires_at INTEGER NOT NULL,
+        created_at TEXT NOT NULL
+    );
+    CREATE INDEX oauth_tokens_grant ON oauth_tokens (grant_id);
+    """,
 ]
 
 

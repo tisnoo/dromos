@@ -4,8 +4,8 @@ A training plan that adapts to you. Dromos pulls runs from Garmin, compares them
 marathon training plan, and re-plans the remaining weeks from what was actually run. Users
 talk to it through MCP clients (Claude custom connector, Hermes agent).
 
-**Status:** Phase 3 (plan import) done: the plan is in the DB. Next is Phase 4 (MCP). Off-server
-backups still open. v1 scope is Garmin
+**Status:** Phase 4 (MCP) built: read-only tools behind OAuth. Next is Phase 5 (re-planning).
+Off-server backups still open. v1 scope is Garmin
 running data only; gym/strength data comes later.
 
 ## Commands
@@ -51,11 +51,19 @@ Compose, Cloudflare Tunnel, GitHub Actions → GHCR → SSH deploy.
   365 days back on an empty DB) and upserts; `sync_job()` is the scheduled wrapper
 - `src/dromos/scheduler.py`: registers jobs on an APScheduler scheduler (hourly Garmin sync,
   nightly DB backup to `DROMOS_BACKUP_DIR`, keeps 14)
-- `src/dromos/app.py`: FastAPI app; starts the scheduler in its lifespan, so always run it
-  with a single worker. `/docs` and `/openapi.json` are disabled
+- The app starts the scheduler in its lifespan, so always run it with a single worker.
+  `/docs` and `/openapi.json` are disabled
 - `src/dromos/plan.py`: plan JSON format (documented in the module), `validate()` for its
   structure, `import_plan()` which loads `plan_weeks` + `sessions` and logs to `plan_changes`.
   Days without sessions are rest days; taper weeks are imported `locked`
+- `src/dromos/training.py`: read-side queries (runs, plan, plan vs actual) returning plain dicts
+- `src/dromos/mcp_server.py`: MCP server (SDK 2.x `MCPServer`) and its tools. Tools are thin
+  wrappers over `training.py`; read-only tools get `readOnlyHint`
+- `src/dromos/auth.py`: single-user OAuth provider. claude.ai uses dynamic client registration,
+  then the owner approves on `/oauth/login` with `DROMOS_OWNER_PASSWORD` (5 failures → 15 min
+  lockout). Hermes sends `DROMOS_API_TOKEN` as a bearer token. Tokens are stored hashed
+- `src/dromos/app.py`: `create_app()` wires FastAPI routes (`/health`, login page) and mounts
+  the MCP app (`/mcp` + OAuth endpoints) at `/`. MCP is stateless with JSON responses
 - `src/dromos/__main__.py`: CLI (`sync`, `worker`, `import-plan`)
 - `Dockerfile`, `deploy/`: image, server compose file, one-time `setup-server.sh`. `.github/workflows/ci.yml`: test → GHCR → SSH deploy on push to `main`.
   The server address lives only in GitHub secrets and the server's `/opt/dromos/.env`
@@ -70,8 +78,12 @@ Re-planning is load-aware, not date-shifting. These rules live in deterministic 
 
 - Next week's target is based on actual recent load (last 2–3 weeks), not the original plan
 - Missed km are never added on top of later weeks
-- Weekly volume rises at most ~10% per week (configurable)
-- Long run ≤ ~30% of weekly volume
+- **110% rule:** no single run exceeds 110% of the longest run in the previous 30 days
+  (Frandsen/Nielsen 2025). This replaces a weekly 10% cap, which the evidence doesn't support;
+  still progress gradually
+- Long runs are capped at 3 h on feet, whatever the km target
+- Keep a cutback week every 3–4 weeks
+- Taper cuts volume (~40–60%), never intensity or frequency
 - Race day and taper weeks are locked
 - If the gap can't be closed before the taper, lower the peak; never compress the build
 - Every change goes `propose → validate → apply` and is logged in `plan_changes`

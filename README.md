@@ -6,7 +6,7 @@ Dromos pulls your runs from Garmin, compares them against your marathon plan, an
 re-plans the remaining weeks from what you actually ran. You talk to it through
 Claude (custom connector) or any other MCP client.
 
-**Status:** Phase 3, runs sync hourly and the training plan is loaded.
+**Status:** Phase 4, Claude and Hermes can read runs and the plan over MCP.
 
 ## Development
 
@@ -44,6 +44,17 @@ A plan is a JSON file of weeks and sessions; the format is described in
 
 On the server, copy the file to `/opt/dromos/data/` and run
 `docker compose exec app python -m dromos import-plan /data/plan.json`.
+
+## Connecting AI clients
+
+The MCP endpoint is `<DROMOS_BASE_URL>/mcp`. Tools: `get_training_status`,
+`get_activities`, `get_plan`, `compare_plan_vs_actual` (all read-only for now).
+
+- **Claude:** Settings → Connectors → Add custom connector, URL `<DROMOS_BASE_URL>/mcp`.
+  Claude registers itself and opens the Dromos login page; enter `DROMOS_OWNER_PASSWORD`.
+- **Hermes (or any client with a fixed token):** send `Authorization: Bearer <DROMOS_API_TOKEN>`.
+
+Both secrets live in `/opt/dromos/.env` on the server (see `.env.example`).
 
 ## Deploying
 
