@@ -9,5 +9,6 @@ __pycache__/
 .env
 data/
 *.db
+*.db-*
 *.sqlite*
 garmin-tokens/

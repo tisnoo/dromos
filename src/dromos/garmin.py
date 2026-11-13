@@ -24,19 +24,24 @@ class Run:
     hr_zone_seconds: dict[int, float]
 
 
-def connect(tokenstore: str | None = None) -> Garmin:
+def connect(tokenstore: str | None = None, interactive: bool = True) -> Garmin:
     """Log in using saved tokens; fall back to GARMIN_EMAIL/GARMIN_PASSWORD (prompts for MFA).
 
     A credential login writes fresh tokens to the token store, so later runs
-    (and the server) only need the token store.
+    (and the server) only need the token store. With interactive=False (scheduled
+    jobs) only the token store is tried, so a missing or expired store fails fast
+    instead of waiting on an MFA prompt.
     """
-    path = str(Path(tokenstore or os.getenv("GARMINTOKENS", DEFAULT_TOKENSTORE)).expanduser())
+    path = str(Path(tokenstore or os.getenv("GARMINTOKENS") or DEFAULT_TOKENSTORE).expanduser())
     Path(path).parent.mkdir(parents=True, exist_ok=True)
-    client = Garmin(
-        email=os.getenv("GARMIN_EMAIL"),
-        password=os.getenv("GARMIN_PASSWORD"),
-        prompt_mfa=lambda: input("Garmin MFA code: "),
-    )
+    if interactive:
+        client = Garmin(
+            email=os.getenv("GARMIN_EMAIL"),
+            password=os.getenv("GARMIN_PASSWORD"),
+            prompt_mfa=lambda: input("Garmin MFA code: "),
+        )
+    else:
+        client = Garmin()
     client.login(tokenstore=path)
     return client
 

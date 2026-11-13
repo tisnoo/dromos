@@ -1,0 +1,118 @@
+"""SQLite storage: connection setup, schema migrations, backups and activity upserts."""
+
+import json
+import os
+import sqlite3
+from datetime import datetime
+from pathlib import Path
+from typing import Any
+
+from dromos.garmin import Run
+
+DEFAULT_DB = "~/.dromos/dromos.db"
+
+# Append-only: each entry runs once, in order, tracked via PRAGMA user_version.
+MIGRATIONS = [
+    """
+    CREATE TABLE activities (
+        id INTEGER PRIMARY KEY,
+        garmin_id INTEGER NOT NULL UNIQUE,
+        start_time TEXT NOT NULL,
+        type TEXT NOT NULL,
+        distance_km REAL NOT NULL,
+        duration_s REAL NOT NULL,
+        avg_pace_s_per_km REAL,
+        avg_hr REAL,
+        max_hr REAL,
+        hr_zone_seconds TEXT NOT NULL,
+        raw TEXT NOT NULL,
+        ingested_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    );
+    CREATE INDEX activities_start_time ON activities (start_time);
+    """,
+]
+
+
+def default_path() -> Path:
+    return Path(os.getenv("DROMOS_DB") or DEFAULT_DB).expanduser()
+
+
+def connect(path: str | None = None) -> sqlite3.Connection:
+    """Open the database (WAL mode) and apply any pending migrations."""
+    db_path = path or str(default_path())
+    if db_path != ":memory:":
+        Path(db_path).parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode = WAL")
+    conn.execute("PRAGMA foreign_keys = ON")
+    migrate(conn)
+    return conn
+
+
+def migrate(conn: sqlite3.Connection) -> None:
+    version = conn.execute("PRAGMA user_version").fetchone()[0]
+    for i, sql in enumerate(MIGRATIONS[version:], start=version + 1):
+        conn.executescript(f"BEGIN; {sql} PRAGMA user_version = {i}; COMMIT;")
+
+
+def backup(conn: sqlite3.Connection, dest_dir: Path, keep: int = 14) -> Path:
+    """Write a consistent copy of the database to dest_dir, keeping the newest `keep` copies."""
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest = dest_dir / f"dromos-{datetime.now():%Y-%m-%d}.db"
+    target = sqlite3.connect(dest)
+    try:
+        conn.backup(target)
+    finally:
+        target.close()
+    for old in sorted(dest_dir.glob("dromos-*.db"))[:-keep]:
+        old.unlink()
+    return dest
+
+
+def upsert_activity(conn: sqlite3.Connection, run: Run, raw: dict[str, Any]) -> bool:
+    """Insert or update an activity by garmin_id. Returns True if it was new."""
+    now = datetime.now().isoformat(timespec="seconds")
+    exists = conn.execute(
+        "SELECT 1 FROM activities WHERE garmin_id = ?", (run.garmin_id,)
+    ).fetchone()
+    conn.execute(
+        """
+        INSERT INTO activities (
+            garmin_id, start_time, type, distance_km, duration_s, avg_pace_s_per_km,
+            avg_hr, max_hr, hr_zone_seconds, raw, ingested_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT (garmin_id) DO UPDATE SET
+            start_time = excluded.start_time,
+            type = excluded.type,
+            distance_km = excluded.distance_km,
+            duration_s = excluded.duration_s,
+            avg_pace_s_per_km = excluded.avg_pace_s_per_km,
+            avg_hr = excluded.avg_hr,
+            max_hr = excluded.max_hr,
+            hr_zone_seconds = excluded.hr_zone_seconds,
+            raw = excluded.raw,
+            updated_at = excluded.updated_at
+        """,
+        (
+            run.garmin_id,
+            run.start_time.isoformat(),
+            run.activity_type,
+            run.distance_km,
+            run.duration_s,
+            run.avg_pace_s_per_km,
+            run.avg_hr,
+            run.max_hr,
+            json.dumps(run.hr_zone_seconds),
+            json.dumps(raw, default=str),
+            now,
+            now,
+        ),
+    )
+    return exists is None
+
+
+def latest_start_time(conn: sqlite3.Connection) -> datetime | None:
+    row = conn.execute("SELECT MAX(start_time) FROM activities").fetchone()
+    return datetime.fromisoformat(row[0]) if row[0] else None

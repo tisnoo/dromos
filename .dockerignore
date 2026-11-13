@@ -1,0 +1,7 @@
+# Only what the image needs; never secrets or personal data
+*
+!pyproject.toml
+!README.md
+!LICENSE
+!src/
+**/__pycache__

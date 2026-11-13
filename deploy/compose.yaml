@@ -1,0 +1,14 @@
+# Copied to /opt/dromos on the server by the deploy workflow.
+# Public HTTPS comes from the server's Cloudflare Tunnel, which forwards the
+# domain to 127.0.0.1:8000. /opt/dromos/.env (never in git) holds app secrets.
+services:
+  app:
+    image: ${DROMOS_IMAGE:-ghcr.io/tisnoo/dromos:latest}
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - ./data:/data
