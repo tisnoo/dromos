@@ -3,7 +3,7 @@
 import json
 import os
 import sqlite3
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -83,6 +83,8 @@ MIGRATIONS = [
     );
     CREATE INDEX oauth_tokens_grant ON oauth_tokens (grant_id);
     """,
+    # Lets a run count towards another day of the plan. Sync never touches it.
+    "ALTER TABLE activities ADD COLUMN count_as_date TEXT;",
 ]
 
 
@@ -163,6 +165,25 @@ def upsert_activity(conn: sqlite3.Connection, run: Run, raw: dict[str, Any]) -> 
         ),
     )
     return exists is None
+
+
+def set_count_as_date(conn: sqlite3.Connection, run_date: date, count_as: date | None) -> int:
+    """Make the single run on run_date (Garmin's date) count as count_as; None clears it.
+
+    Returns the run's garmin_id. Raises ValueError unless exactly one run is on run_date.
+    """
+    rows = conn.execute(
+        "SELECT garmin_id FROM activities WHERE date(start_time) = ?", (run_date.isoformat(),)
+    ).fetchall()
+    if len(rows) != 1:
+        raise ValueError(f"expected one run on {run_date}, found {len(rows)}")
+    garmin_id = rows[0]["garmin_id"]
+    with conn:
+        conn.execute(
+            "UPDATE activities SET count_as_date = ? WHERE garmin_id = ?",
+            (count_as.isoformat() if count_as else None, garmin_id),
+        )
+    return garmin_id
 
 
 def latest_start_time(conn: sqlite3.Connection) -> datetime | None:

@@ -18,16 +18,17 @@ def fmt_pace(seconds_per_km: float | None) -> str | None:
 def activities(conn: sqlite3.Connection, start: date, end: date) -> list[dict[str, Any]]:
     rows = conn.execute(
         """
-        SELECT * FROM activities
-        WHERE date(start_time) BETWEEN ? AND ?
-        ORDER BY start_time
+        SELECT *, COALESCE(count_as_date, date(start_time)) AS plan_date FROM activities
+        WHERE plan_date BETWEEN ? AND ?
+        ORDER BY plan_date, start_time
         """,
         (start.isoformat(), end.isoformat()),
     ).fetchall()
     return [
         {
-            "date": row["start_time"][:10],
+            "date": row["plan_date"],
             "start_time": row["start_time"],
+            "moved": row["count_as_date"] is not None,
             "type": row["type"],
             "distance_km": round(row["distance_km"], 2),
             "duration_min": round(row["duration_s"] / 60, 1),

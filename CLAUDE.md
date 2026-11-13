@@ -17,6 +17,7 @@ python3 -m venv .venv && .venv/bin/pip install -e '.[dev]'   # setup
 .venv/bin/python -m dromos sync [--since YYYY-MM-DD]         # pull runs from Garmin into SQLite
 .venv/bin/python -m dromos worker                            # hourly sync until stopped
 .venv/bin/python -m dromos import-plan data/plan.json        # load a plan (--replace to overwrite)
+.venv/bin/python -m dromos count-run-as 2026-11-07 2026-11-09 # count a run towards another day (omit 2nd date to undo)
 .venv/bin/uvicorn dromos.app:app --port 8000                 # run the app (jobs included)
 ```
 
@@ -46,7 +47,8 @@ Compose, Cloudflare Tunnel, GitHub Actions → GHCR → SSH deploy.
   into `Run` records. `connect(interactive=False)` uses only the token store (for jobs)
 - `src/dromos/db.py`: SQLite connection (WAL), append-only `MIGRATIONS` list tracked with
   `PRAGMA user_version` (never edit an applied migration; add a new one), activity upsert.
-  Path from `DROMOS_DB` (default `~/.dromos/dromos.db`)
+  Path from `DROMOS_DB` (default `~/.dromos/dromos.db`). `count_as_date` on an activity moves
+  it to another plan day; sync never overwrites it, `training.py` reads it
 - `src/dromos/ingest.py`: `sync()` fetches from 7 days before the latest stored run (or
   365 days back on an empty DB) and upserts; `sync_job()` is the scheduled wrapper
 - `src/dromos/scheduler.py`: registers jobs on an APScheduler scheduler (hourly Garmin sync,

@@ -1,6 +1,7 @@
 import json
-from datetime import datetime
+from datetime import date, datetime
 
+import pytest
 from conftest import raw_run
 
 from dromos import db
@@ -52,3 +53,21 @@ def test_backup_keeps_newest_copies(conn, tmp_path):
     copy = db.connect(str(dest))
     assert copy.execute("PRAGMA user_version").fetchone()[0] == len(db.MIGRATIONS)
     copy.close()
+
+
+def test_count_as_date_survives_resync(conn):
+    raw = raw_run(1, "2026-11-07 20:41:00")
+    db.upsert_activity(conn, normalise(raw), raw)
+    assert db.set_count_as_date(conn, date(2026, 11, 7), date(2026, 11, 9)) == 1
+
+    db.upsert_activity(conn, normalise(raw), raw)
+    row = conn.execute("SELECT count_as_date FROM activities").fetchone()
+    assert row["count_as_date"] == "2026-11-09"
+
+    db.set_count_as_date(conn, date(2026, 11, 7), None)
+    assert conn.execute("SELECT count_as_date FROM activities").fetchone()[0] is None
+
+
+def test_count_as_date_needs_exactly_one_run(conn):
+    with pytest.raises(ValueError, match="found 0"):
+        db.set_count_as_date(conn, date(2026, 11, 7), date(2026, 11, 9))

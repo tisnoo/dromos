@@ -55,3 +55,12 @@ def test_compare_week(conn):
     assert [p["type"] for p in monday["planned"]] == ["easy", "gym"]
     assert monday["actual_runs"][0]["distance_km"] == 5.2
     assert tuesday["planned"] == "rest"
+
+
+def test_moved_run_counts_on_its_new_day(conn):
+    load(conn)
+    db.set_count_as_date(conn, date(2026, 11, 16), date(2026, 11, 15))
+    runs = training.activities(conn, date(2026, 11, 9), date(2026, 11, 15))
+    assert [(r["date"], r["moved"]) for r in runs][-1] == ("2026-11-15", True)
+    assert runs[-1]["start_time"].startswith("2026-11-16")
+    assert training.activities(conn, date(2026, 11, 16), date(2026, 11, 16)) == []

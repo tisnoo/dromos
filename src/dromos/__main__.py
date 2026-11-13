@@ -1,4 +1,4 @@
-"""Command line: `python -m dromos sync|worker|import-plan`. See --help."""
+"""Command line: `python -m dromos sync|worker|import-plan|count-run-as`. See --help."""
 
 import argparse
 import json
@@ -28,6 +28,13 @@ def main() -> None:
     import_plan.add_argument(
         "--replace", action="store_true", help="overwrite the plan that is already loaded"
     )
+    count_as = commands.add_parser(
+        "count-run-as", help="count the run on one day towards another day of the plan"
+    )
+    count_as.add_argument("run_date", type=date.fromisoformat, help="the run's date in Garmin")
+    count_as.add_argument(
+        "count_as", type=date.fromisoformat, nargs="?", help="plan day (omit to undo)"
+    )
     args = parser.parse_args()
 
     load_dotenv()
@@ -48,6 +55,11 @@ def main() -> None:
         plan.import_plan(conn, data, reason=f"Imported {args.path.name}", replace=args.replace)
         sessions = conn.execute("SELECT COUNT(*) FROM sessions").fetchone()[0]
         print(f"Imported {len(data['weeks'])} weeks, {sessions} sessions")
+    elif args.command == "count-run-as":
+        conn = db.connect()
+        garmin_id = db.set_count_as_date(conn, args.run_date, args.count_as)
+        target = args.count_as or args.run_date
+        print(f"Run {garmin_id} from {args.run_date} now counts as {target}")
     else:
         add_jobs(BlockingScheduler()).start()
 
