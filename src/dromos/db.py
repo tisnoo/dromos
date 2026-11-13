@@ -31,6 +31,40 @@ MIGRATIONS = [
     );
     CREATE INDEX activities_start_time ON activities (start_time);
     """,
+    """
+    CREATE TABLE plan_weeks (
+        id INTEGER PRIMARY KEY,
+        number INTEGER NOT NULL UNIQUE,
+        week_start TEXT NOT NULL UNIQUE,
+        phase TEXT NOT NULL CHECK (phase IN ('base', 'build', 'taper')),
+        flag TEXT CHECK (flag IN ('cutback', 'peak', 'taper', 'race')),
+        target_km REAL NOT NULL,
+        long_run_km REAL NOT NULL,
+        key_session TEXT,
+        locked INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE TABLE sessions (
+        id INTEGER PRIMARY KEY,
+        week_id INTEGER NOT NULL REFERENCES plan_weeks (id) ON DELETE CASCADE,
+        date TEXT NOT NULL,
+        type TEXT NOT NULL CHECK (type IN (
+            'easy', 'tempo', 'marathon_pace', 'interval', 'long', 'race', 'gym', 'mobility'
+        )),
+        title TEXT NOT NULL,
+        target_km REAL,
+        target_zone TEXT,
+        notes TEXT
+    );
+    CREATE INDEX sessions_date ON sessions (date);
+    CREATE TABLE plan_changes (
+        id INTEGER PRIMARY KEY,
+        created_at TEXT NOT NULL,
+        reason TEXT NOT NULL,
+        source TEXT NOT NULL CHECK (source IN ('claude', 'hermes', 'manual')),
+        diff TEXT NOT NULL,
+        status TEXT NOT NULL CHECK (status IN ('proposed', 'applied', 'rejected'))
+    );
+    """,
 ]
 
 

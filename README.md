@@ -6,7 +6,7 @@ Dromos pulls your runs from Garmin, compares them against your marathon plan, an
 re-plans the remaining weeks from what you actually ran. You talk to it through
 Claude (custom connector) or any other MCP client.
 
-**Status:** Phase 2, deployed; runs sync hourly.
+**Status:** Phase 3, runs sync hourly and the training plan is loaded.
 
 ## Development
 
@@ -31,6 +31,19 @@ cp .env.example .env
 
 Runs are stored in `~/.dromos/dromos.db` (set `DROMOS_DB` to change it).
 `scripts/garmin_spike.py` prints your last 30 runs and saves the raw JSON to `data/`.
+
+## Loading a training plan
+
+A plan is a JSON file of weeks and sessions; the format is described in
+`src/dromos/plan.py`. Keep it in `data/` (gitignored).
+
+```sh
+.venv/bin/python scripts/convert_claude_plan.py "Marathon.html" data/plan.json  # from the HTML plan
+.venv/bin/python -m dromos import-plan data/plan.json
+```
+
+On the server, copy the file to `/opt/dromos/data/` and run
+`docker compose exec app python -m dromos import-plan /data/plan.json`.
 
 ## Deploying
 

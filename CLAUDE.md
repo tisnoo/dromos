@@ -4,7 +4,8 @@ A training plan that adapts to you. Dromos pulls runs from Garmin, compares them
 marathon training plan, and re-plans the remaining weeks from what was actually run. Users
 talk to it through MCP clients (Claude custom connector, Hermes agent).
 
-**Status:** Phase 2 (deploy) live: pushes to `main` deploy automatically. Off-server backups still open. v1 scope is Garmin
+**Status:** Phase 3 (plan import) done: the plan is in the DB. Next is Phase 4 (MCP). Off-server
+backups still open. v1 scope is Garmin
 running data only; gym/strength data comes later.
 
 ## Commands
@@ -15,6 +16,7 @@ python3 -m venv .venv && .venv/bin/pip install -e '.[dev]'   # setup
 .venv/bin/ruff check . && .venv/bin/ruff format .            # lint + format
 .venv/bin/python -m dromos sync [--since YYYY-MM-DD]         # pull runs from Garmin into SQLite
 .venv/bin/python -m dromos worker                            # hourly sync until stopped
+.venv/bin/python -m dromos import-plan data/plan.json        # load a plan (--replace to overwrite)
 .venv/bin/uvicorn dromos.app:app --port 8000                 # run the app (jobs included)
 ```
 
@@ -51,10 +53,14 @@ Compose, Cloudflare Tunnel, GitHub Actions → GHCR → SSH deploy.
   nightly DB backup to `DROMOS_BACKUP_DIR`, keeps 14)
 - `src/dromos/app.py`: FastAPI app; starts the scheduler in its lifespan, so always run it
   with a single worker. `/docs` and `/openapi.json` are disabled
-- `src/dromos/__main__.py`: CLI (`sync`, `worker`)
+- `src/dromos/plan.py`: plan JSON format (documented in the module), `validate()` for its
+  structure, `import_plan()` which loads `plan_weeks` + `sessions` and logs to `plan_changes`.
+  Days without sessions are rest days; taper weeks are imported `locked`
+- `src/dromos/__main__.py`: CLI (`sync`, `worker`, `import-plan`)
 - `Dockerfile`, `deploy/`: image, server compose file, one-time `setup-server.sh`. `.github/workflows/ci.yml`: test → GHCR → SSH deploy on push to `main`.
   The server address lives only in GitHub secrets and the server's `/opt/dromos/.env`
-- `scripts/`: one-off and spike scripts
+- `scripts/`: one-off and spike scripts. `convert_claude_plan.py` turns the original HTML plan
+  into plan JSON. Plan files are personal data: keep them in `data/`, never in git
 - `tests/`: pytest; use fixture dicts shaped like real Garmin JSON, never call Garmin in tests
 
 ## Re-planning rules
