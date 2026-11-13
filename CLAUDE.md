@@ -4,7 +4,7 @@ A training plan that adapts to you. Dromos pulls runs from Garmin, compares them
 marathon training plan, and re-plans the remaining weeks from what was actually run. Users
 talk to it through MCP clients (Claude custom connector, Hermes agent).
 
-**Status:** Phase 2 (deploy) in progress: app, image and pipeline built; server not set up yet. v1 scope is Garmin
+**Status:** Phase 2 (deploy) live: pushes to `main` deploy automatically. Off-server backups still open. v1 scope is Garmin
 running data only; gym/strength data comes later.
 
 ## Commands

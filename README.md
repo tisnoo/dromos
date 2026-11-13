@@ -6,7 +6,7 @@ Dromos pulls your runs from Garmin, compares them against your marathon plan, an
 re-plans the remaining weeks from what you actually ran. You talk to it through
 Claude (custom connector) or any other MCP client.
 
-**Status:** Phase 2, getting it deployed.
+**Status:** Phase 2, deployed; runs sync hourly.
 
 ## Development
 
