@@ -85,6 +85,12 @@ MIGRATIONS = [
     """,
     # Lets a run count towards another day of the plan. Sync never touches it.
     "ALTER TABLE activities ADD COLUMN count_as_date TEXT;",
+    # The imported targets, kept so re-planning never plans above the original plan.
+    """
+    ALTER TABLE plan_weeks ADD COLUMN original_target_km REAL;
+    ALTER TABLE plan_weeks ADD COLUMN original_long_run_km REAL;
+    UPDATE plan_weeks SET original_target_km = target_km, original_long_run_km = long_run_km;
+    """,
 ]
 
 

@@ -6,7 +6,8 @@ Dromos pulls your runs from Garmin, compares them against your marathon plan, an
 re-plans the remaining weeks from what you actually ran. You talk to it through
 Claude (custom connector) or any other MCP client.
 
-**Status:** Phase 4, Claude and Hermes can read runs and the plan over MCP.
+**Status:** Phase 5, Claude and Hermes can read runs and the plan over MCP, and re-plan
+through a rules validator.
 
 ## Development
 
@@ -47,8 +48,10 @@ On the server, copy the file to `/opt/dromos/data/` and run
 
 ## Connecting AI clients
 
-The MCP endpoint is `<DROMOS_BASE_URL>/mcp`. Tools: `get_training_status`,
-`get_activities`, `get_plan`, `compare_plan_vs_actual` (all read-only for now).
+The MCP endpoint is `<DROMOS_BASE_URL>/mcp`. Read tools: `get_training_status`,
+`get_activities`, `get_plan`, `compare_plan_vs_actual`, `get_plan_changes`. Plan changes:
+`propose_replan` and `propose_plan_change` return a checked proposal; `apply_plan_change`
+writes it once you agree.
 
 - **Claude:** Settings → Connectors → Add custom connector, URL `<DROMOS_BASE_URL>/mcp`.
   Claude registers itself and opens the Dromos login page; enter `DROMOS_OWNER_PASSWORD`.

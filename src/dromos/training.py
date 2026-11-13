@@ -73,6 +73,8 @@ def _week(conn: sqlite3.Connection, row: sqlite3.Row) -> dict[str, Any]:
         "long_run_km": row["long_run_km"],
         "key_session": row["key_session"],
         "locked": bool(row["locked"]),
+        "original_target_km": row["original_target_km"],
+        "original_long_run_km": row["original_long_run_km"],
         "sessions": _sessions(conn, row["id"]),
     }
 
@@ -84,6 +86,11 @@ def plan(conn: sqlite3.Connection, start: date, end: date) -> list[dict[str, Any
         "ORDER BY number",
         (end.isoformat(), start.isoformat()),
     ).fetchall()
+    return [_week(conn, row) for row in rows]
+
+
+def all_weeks(conn: sqlite3.Connection) -> list[dict[str, Any]]:
+    rows = conn.execute("SELECT * FROM plan_weeks ORDER BY number").fetchall()
     return [_week(conn, row) for row in rows]
 
 

@@ -76,8 +76,9 @@ def import_plan(
             week_id = conn.execute(
                 """
                 INSERT INTO plan_weeks (number, week_start, phase, flag, target_km,
-                                        long_run_km, key_session, locked)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                                        long_run_km, key_session, locked,
+                                        original_target_km, original_long_run_km)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     week["number"],
@@ -88,6 +89,8 @@ def import_plan(
                     week["long_run_km"],
                     week.get("key_session"),
                     int(bool(week.get("locked"))),
+                    week["target_km"],
+                    week["long_run_km"],
                 ),
             ).lastrowid
             conn.executemany(

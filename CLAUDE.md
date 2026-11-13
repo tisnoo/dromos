@@ -4,7 +4,8 @@ A training plan that adapts to you. Dromos pulls runs from Garmin, compares them
 marathon training plan, and re-plans the remaining weeks from what was actually run. Users
 talk to it through MCP clients (Claude custom connector, Hermes agent).
 
-**Status:** Phase 4 (MCP) built: read-only tools behind OAuth. Next is Phase 5 (re-planning).
+**Status:** Phase 5 (re-planning) built: MCP tools behind OAuth read runs and the plan, and
+propose/apply plan changes through the rules validator.
 Off-server backups still open. v1 scope is Garmin
 running data only; gym/strength data comes later.
 
@@ -59,8 +60,12 @@ Compose, Cloudflare Tunnel, GitHub Actions → GHCR → SSH deploy.
   structure, `import_plan()` which loads `plan_weeks` + `sessions` and logs to `plan_changes`.
   Days without sessions are rest days; taper weeks are imported `locked`
 - `src/dromos/training.py`: read-side queries (runs, plan, plan vs actual) returning plain dicts
+- `src/dromos/replan.py`: rules validator, deterministic `replan()`, and `propose()` /
+  `apply()`. A change is a list of replacement weeks; tuning constants are at the top.
+  `plan_weeks.original_*` keep the imported targets (re-planning never goes above them)
 - `src/dromos/mcp_server.py`: MCP server (SDK 2.x `MCPServer`) and its tools. Tools are thin
-  wrappers over `training.py`; read-only tools get `readOnlyHint`
+  wrappers over `training.py` and `replan.py`; read-only tools get `readOnlyHint`, and
+  `apply_plan_change` is marked destructive so clients confirm it
 - `src/dromos/auth.py`: single-user OAuth provider. claude.ai uses dynamic client registration,
   then the owner approves on `/oauth/login` with `DROMOS_OWNER_PASSWORD` (5 failures → 15 min
   lockout). Hermes sends `DROMOS_API_TOKEN` as a bearer token. Tokens are stored hashed
@@ -78,17 +83,22 @@ Compose, Cloudflare Tunnel, GitHub Actions → GHCR → SSH deploy.
 Re-planning is load-aware, not date-shifting. These rules live in deterministic code
 (`replan()` + a validator), not in prompts:
 
-- Next week's target is based on actual recent load (last 2–3 weeks), not the original plan
+- Next week's target is based on actual recent load (last 2–3 weeks), not the original plan;
+  weeks grow at most 15% over the higher of the two normal weeks before them
 - Missed km are never added on top of later weeks
 - **110% rule:** no single run exceeds 110% of the longest run in the previous 30 days
   (Frandsen/Nielsen 2025). This replaces a weekly 10% cap, which the evidence doesn't support;
   still progress gradually
 - Long runs are capped at 3 h on feet, whatever the km target
-- Keep a cutback week every 3–4 weeks
+- Keep a cutback week every 3–4 weeks (at most 85% of the week before)
 - Taper cuts volume (~40–60%), never intensity or frequency
 - Race day and taper weeks are locked
 - If the gap can't be closed before the taper, lower the peak; never compress the build
-- Every change goes `propose → validate → apply` and is logged in `plan_changes`
+- Days up to today never change; replan rebuilds the weeks after today and only caps the rest
+  of the current week
+- Every change goes `propose → validate → apply` and is logged in `plan_changes`. An edit is
+  only blocked by violations it introduces (or ones on runs/weeks it changes); `replan()`
+  output must pass the full validator
 
 AI clients may propose and explain changes; the service validates every change against these
 rules before saving. Never add an MCP tool that writes to the plan without going through the

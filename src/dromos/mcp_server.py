@@ -1,18 +1,20 @@
-"""MCP endpoint: the only way AI clients read (and, from Phase 5, change) training data.
+"""MCP endpoint: the only way AI clients read and change training data.
 
-Read-only for now. Plan changes will go through propose → validate → apply; never add a
-tool that writes to the plan without the validator.
+Plan changes go through propose → validate → apply (`replan.py`); never add a tool that
+writes to the plan without the validator.
 """
 
 from datetime import date, timedelta
-from typing import Any
+from typing import Any, Literal
 
+from mcp.server.auth.middleware.auth_context import get_access_token
 from mcp.server.auth.settings import AuthSettings, ClientRegistrationOptions, RevocationOptions
 from mcp.server.mcpserver import MCPServer
 from mcp.types import ToolAnnotations
+from pydantic import BaseModel, Field
 
-from dromos import db, training
-from dromos.auth import DromosOAuthProvider
+from dromos import db, replan, training
+from dromos.auth import HERMES_CLIENT_ID, DromosOAuthProvider
 
 INSTRUCTIONS = """\
 Dromos holds the user's marathon training plan and the runs their Garmin watch recorded
@@ -23,10 +25,40 @@ planned with what was actually run.
 - Zones are the three-zone research model: Z1 below LT1 (easy), Z2 between LT1 and LT2
   (marathon pace, tempo), Z3 above LT2. Garmin's hr_zone_minutes use Garmin's 5 zones.
 - Gym sessions are in the plan, but only runs are recorded so far.
-- Changing the plan isn't available yet; explain what you'd change instead.
+- Changing the plan is propose → apply. propose_replan rebuilds the weeks after today from
+  recent load; propose_plan_change edits specific weeks (e.g. moving or dropping sessions).
+  Both are checked against the plan's rules; show the user the proposal (and any violations)
+  and only call apply_plan_change once they agree. Days up to today, taper weeks and the
+  race never change, and missed km are never added back.
 """
 
 READ_ONLY = ToolAnnotations(readOnlyHint=True, openWorldHint=False)
+PROPOSE = ToolAnnotations(readOnlyHint=False, destructiveHint=False, openWorldHint=False)
+APPLY = ToolAnnotations(readOnlyHint=False, destructiveHint=True, openWorldHint=False)
+
+
+class Session(BaseModel):
+    date: date
+    type: Literal["easy", "tempo", "marathon_pace", "interval", "long", "gym", "mobility"]
+    title: str = Field(description='Include the distance for runs, e.g. "Easy run 5 km"')
+    target_km: float | None = Field(None, description="Required for runs")
+    target_zone: str | None = Field(None, description="Z1, Z2 or Z3")
+    notes: str | None = None
+
+
+class WeekEdit(BaseModel):
+    week: int
+    sessions: list[Session] = Field(
+        description="The week's full list of sessions from tomorrow on, gym included. "
+        "Days left out become rest days; days up to today are kept as they are."
+    )
+    flag: Literal["cutback", "peak"] | None = Field(None, description="Omit to keep the current")
+    key_session: str | None = Field(None, description="Omit to keep the current")
+
+
+def _source() -> str:
+    token = get_access_token()
+    return "hermes" if token and token.client_id == HERMES_CLIENT_ID else "claude"
 
 
 def _query(fn, *args) -> Any:
@@ -93,5 +125,63 @@ def create_mcp(base_url: str, provider: DromosOAuthProvider) -> MCPServer:
         if number is None:
             raise ValueError("Today is outside the plan; pass a week number")
         return _query(training.compare_week, number, today)
+
+    @mcp.tool(annotations=READ_ONLY)
+    def get_plan_changes(limit: int = 10) -> dict[str, Any]:
+        """Recent plan changes, newest first: proposals, applied and rejected changes, with
+        what changed per week and any rule violations."""
+        return {"changes": _query(replan.changes, limit)}
+
+    @mcp.tool(annotations=PROPOSE)
+    def propose_replan(reason: str) -> dict[str, Any]:
+        """Rebuild every unlocked week after today from recent load and the plan's rules.
+        Doesn't change the plan: returns a proposal to show the user and apply if they agree.
+        `reason`: why, in the user's words (e.g. "missed the long run, sick this week")."""
+        today = date.today()
+        conn = db.connect()
+        try:
+            ctx = replan.context(conn, today)
+            weeks, notes = replan.replan(training.all_weeks(conn), ctx)
+            if not weeks:
+                return {"status": "unchanged", "notes": ["The plan already fits recent load"]}
+            notes = [
+                f"recent load {ctx.load_km} km/week; long-run pace "
+                f"{training.fmt_pace(ctx.pace_s_per_km)}",
+                *notes,
+            ]
+            return replan.propose(conn, weeks, reason, _source(), today, notes)
+        finally:
+            conn.close()
+
+    @mcp.tool(annotations=PROPOSE)
+    def propose_plan_change(weeks: list[WeekEdit], reason: str) -> dict[str, Any]:
+        """Propose edits to specific weeks: move, add, shorten or drop sessions, or set a
+        week's flag. Week targets follow from the sessions. Doesn't change the plan: returns
+        the proposal and any rule violations; fix those and propose again if needed."""
+        today = date.today()
+        conn = db.connect()
+        try:
+            edits = [
+                {
+                    "week": w.week,
+                    "sessions": [
+                        {**s.model_dump(), "date": s.date.isoformat()} for s in w.sessions
+                    ],
+                    **{
+                        k: getattr(w, k) for k in ("flag", "key_session") if k in w.model_fields_set
+                    },
+                }
+                for w in weeks
+            ]
+            proposed = replan.edit_weeks(training.all_weeks(conn), edits, today)
+            return replan.propose(conn, proposed, reason, _source(), today)
+        finally:
+            conn.close()
+
+    @mcp.tool(annotations=APPLY)
+    def apply_plan_change(change_id: int) -> dict[str, Any]:
+        """Write a proposed change to the plan, once the user has agreed to it. Checks it
+        again first; other open proposals are then discarded."""
+        return _query(replan.apply, change_id, date.today())
 
     return mcp

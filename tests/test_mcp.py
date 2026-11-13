@@ -132,8 +132,13 @@ def test_oauth_flow_then_tools(client):
         "get_activities",
         "get_plan",
         "compare_plan_vs_actual",
+        "get_plan_changes",
+        "propose_replan",
+        "propose_plan_change",
+        "apply_plan_change",
     }
-    assert all(t["annotations"]["readOnlyHint"] for t in tools)
+    writes = {t["name"] for t in tools if not t["annotations"]["readOnlyHint"]}
+    assert writes == {"propose_replan", "propose_plan_change", "apply_plan_change"}
 
     result = call(
         client,
@@ -175,3 +180,52 @@ def test_tokens_are_stored_hashed(client, tmp_path):
         .fetchall()
     )
     assert stored and all(tokens["access_token"] not in row[0] for row in stored)
+
+
+def tool(client, name: str, arguments: dict) -> dict:
+    response = call(client, "hermes-token", "tools/call", {"name": name, "arguments": arguments})
+    result = response.json()["result"]
+    assert not result.get("isError"), result
+    return result["structuredContent"]
+
+
+def test_propose_and_apply_plan_changes(client, tmp_path):
+    from datetime import date, timedelta
+
+    from test_replan import make_plan
+
+    from dromos import db, plan
+
+    monday = date.today() + timedelta(days=7 - date.today().weekday())
+    conn = db.connect(str(tmp_path / "dromos.db"))
+    plan.import_plan(conn, make_plan(monday), reason="test")
+    conn.close()
+
+    first = tool(client, "propose_replan", {"reason": "no recent runs"})
+    assert first["status"] == "proposed", first
+    assert first["notes"][0].startswith("recent load 10.0 km/week")
+    replanned = tool(client, "propose_replan", {"reason": "same again"})
+    assert tool(client, "apply_plan_change", {"change_id": replanned["change_id"]}) == {
+        "change_id": replanned["change_id"],
+        "status": "applied",
+        "weeks": [1, 2, 3, 4, 5],
+    }
+    week_1 = tool(client, "get_plan", {"start_date": monday.isoformat()})["weeks"][0]
+    assert week_1["target_km"] <= 10 * 1.15 + 0.25
+
+    # Drop Wednesday's run: the long run stays, so later weeks are still within the rules.
+    wednesday = (monday + timedelta(days=2)).isoformat()
+    keep = [s for s in week_1["sessions"] if s["date"] != wednesday]
+    edit = tool(
+        client,
+        "propose_plan_change",
+        {"weeks": [{"week": 1, "sessions": keep}], "reason": "busy Wednesday"},
+    )
+    assert edit["status"] == "proposed", edit
+    assert [r["date"] for r in edit["changes"][0]["runs"]] == [wednesday]
+    tool(client, "apply_plan_change", {"change_id": edit["change_id"]})
+
+    changes = tool(client, "get_plan_changes", {})["changes"]
+    assert [c["status"] for c in changes[:4]] == ["applied", "applied", "rejected", "applied"]
+    assert changes[0]["source"] == "hermes"
+    assert changes[3]["summary"]["action"] == "import"
