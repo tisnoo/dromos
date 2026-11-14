@@ -7,7 +7,7 @@ from pathlib import Path
 
 from apscheduler.schedulers.base import BaseScheduler
 
-from dromos import db
+from dromos import db, notify
 from dromos.ingest import sync_job
 
 log = logging.getLogger(__name__)
@@ -29,6 +29,21 @@ def backup_job() -> None:
         log.exception("Database backup failed")
 
 
+def daily_brief_job() -> None:
+    """Sync first, so last night's sleep and late runs are in, then send Hermes the brief."""
+    if not notify.enabled():
+        return
+    sync_job()
+    try:
+        conn = db.connect()
+        try:
+            notify.send_daily_brief(conn)
+        finally:
+            conn.close()
+    except Exception:
+        log.exception("Daily brief failed")
+
+
 def add_jobs(scheduler: BaseScheduler) -> BaseScheduler:
     scheduler.add_job(
         sync_job,
@@ -40,4 +55,13 @@ def add_jobs(scheduler: BaseScheduler) -> BaseScheduler:
         coalesce=True,
     )
     scheduler.add_job(backup_job, "cron", hour=BACKUP_HOUR, id="db_backup", coalesce=True)
+    scheduler.add_job(
+        daily_brief_job,
+        "cron",
+        hour=notify.DAILY_BRIEF_HOUR,
+        timezone=notify.timezone(),
+        id="daily_brief",
+        coalesce=True,
+        misfire_grace_time=3600,
+    )
     return scheduler

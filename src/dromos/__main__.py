@@ -1,4 +1,4 @@
-"""Command line: `python -m dromos sync|worker|import-plan|count-run-as`. See --help."""
+"""Command line: `python -m dromos sync|worker|import-plan|count-run-as|brief`. See --help."""
 
 import argparse
 import json
@@ -9,7 +9,7 @@ from pathlib import Path
 from apscheduler.schedulers.blocking import BlockingScheduler
 from dotenv import load_dotenv
 
-from dromos import db, garmin, ingest, plan
+from dromos import db, garmin, ingest, notify, plan
 from dromos.scheduler import add_jobs
 
 
@@ -35,6 +35,8 @@ def main() -> None:
     count_as.add_argument(
         "count_as", type=date.fromisoformat, nargs="?", help="plan day (omit to undo)"
     )
+    brief = commands.add_parser("brief", help="send today's brief to Hermes now")
+    brief.add_argument("--print", action="store_true", help="print the payload, don't send")
     args = parser.parse_args()
 
     load_dotenv()
@@ -63,6 +65,14 @@ def main() -> None:
         garmin_id = db.set_count_as_date(conn, args.run_date, args.count_as)
         target = args.count_as or args.run_date
         print(f"Run {garmin_id} from {args.run_date} now counts as {target}")
+    elif args.command == "brief":
+        conn = db.connect()
+        if args.print:
+            print(json.dumps(notify.daily_payload(conn, notify.local_today()), indent=2))
+        elif notify.send_daily_brief(conn):
+            print("Sent")
+        else:
+            raise SystemExit("Not sent: see the log, or set the DROMOS_HERMES_WEBHOOK_* settings")
     else:
         add_jobs(BlockingScheduler()).start()
 

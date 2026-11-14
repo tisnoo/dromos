@@ -10,5 +10,8 @@ services:
         required: false
     ports:
       - "127.0.0.1:8000:8000"
+    # Hermes runs on the host; Dromos posts events to its webhook port (see README)
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - ./data:/data

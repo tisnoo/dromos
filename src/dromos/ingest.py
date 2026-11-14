@@ -6,7 +6,7 @@ from datetime import date, timedelta
 
 from garminconnect import Garmin
 
-from dromos import db, garmin
+from dromos import db, garmin, notify
 from dromos.garmin import Run, Sleep
 
 log = logging.getLogger(__name__)
@@ -85,7 +85,8 @@ def sync_sleep(
 
 
 def sync_job() -> None:
-    """Scheduled entry point: uses the token store only, never prompts."""
+    """Scheduled entry point: uses the token store only, never prompts. Sleep goes first, so
+    feedback on a new run can include the night before it."""
     try:
         client = garmin.connect(interactive=False)
         conn = db.connect()
@@ -93,9 +94,11 @@ def sync_job() -> None:
         log.exception("Garmin sync failed")
         return
     try:
-        for name, fn in (("runs", sync), ("sleep", sync_sleep)):
+        for name, fn in (("sleep", sync_sleep), ("runs", sync)):
             try:
-                fn(client, conn)
+                new = fn(client, conn)
+                if name == "runs":
+                    notify.notify_new_runs(conn, new)
             except Exception:
                 log.exception("Garmin sync failed (%s)", name)
     finally:

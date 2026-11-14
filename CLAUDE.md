@@ -19,6 +19,7 @@ python3 -m venv .venv && .venv/bin/pip install -e '.[dev]'   # setup
 .venv/bin/python -m dromos worker                            # hourly sync until stopped
 .venv/bin/python -m dromos import-plan data/plan.json        # load a plan (--replace to overwrite)
 .venv/bin/python -m dromos count-run-as 2026-11-07 2026-11-09 # count a run towards another day (omit 2nd date to undo)
+.venv/bin/python -m dromos brief [--print]                   # send today's brief to Hermes now
 .venv/bin/uvicorn dromos.app:app --port 8000                 # run the app (jobs included)
 ```
 
@@ -37,7 +38,8 @@ are open on the server:
   This is the only way AI clients read or change data.
 - **Dashboard (`/dashboard`):** server-rendered HTML (Jinja). Reads straight from the DB; there
   is no AI in the dashboard. Google sign-in, limited to one address.
-- **Notifications:** Telegram message from the app when a new run is ingested.
+- **Notifications:** the app POSTs signed events to the Hermes agent's webhook platform (new
+  run, daily brief at 06:00); Hermes writes the message and delivers it (Telegram).
 
 Planned stack: Python 3.12+, FastAPI, MCP Python SDK, SQLite, APScheduler, Jinja, Docker
 Compose, Cloudflare Tunnel, GitHub Actions → GHCR → SSH deploy.
@@ -58,7 +60,11 @@ Compose, Cloudflare Tunnel, GitHub Actions → GHCR → SSH deploy.
   days before the latest stored night (60 back on an empty DB); `sync_job()` runs both, so
   one failing doesn't stop the other
 - `src/dromos/scheduler.py`: registers jobs on an APScheduler scheduler (hourly Garmin sync,
-  nightly DB backup to `DROMOS_BACKUP_DIR`, keeps 14)
+  nightly DB backup to `DROMOS_BACKUP_DIR`, keeps 14, daily brief at 06:00 `DROMOS_TIMEZONE`)
+- `src/dromos/notify.py`: events to Hermes (routes `dromos-run`, `dromos-daily`), signed with
+  Hermes' V2 HMAC. Payloads carry the data (Hermes webhook runs have no MCP) and must stay
+  under 4000 chars. Off unless `DROMOS_HERMES_WEBHOOK_URL`/`_SECRET` are set; `sync_job()`
+  calls it for new runs from today/yesterday
 - The app starts the scheduler in its lifespan, so always run it with a single worker.
   `/docs` and `/openapi.json` are disabled
 - `src/dromos/plan.py`: plan JSON format (documented in the module), `validate()` for its
@@ -82,7 +88,7 @@ Compose, Cloudflare Tunnel, GitHub Actions → GHCR → SSH deploy.
   unless all four dashboard settings are set
 - `src/dromos/app.py`: `create_app()` wires FastAPI routes (`/health`, login page) and mounts
   the MCP app (`/mcp` + OAuth endpoints) at `/`. MCP is stateless with JSON responses
-- `src/dromos/__main__.py`: CLI (`sync`, `worker`, `import-plan`)
+- `src/dromos/__main__.py`: CLI (`sync`, `worker`, `import-plan`, `count-run-as`, `brief`)
 - `Dockerfile`, `deploy/`: image, server compose file, one-time `setup-server.sh`. `.github/workflows/ci.yml`: test → GHCR → SSH deploy on push to `main`.
   The server address lives only in GitHub secrets and the server's `/opt/dromos/.env`
 - `scripts/`: one-off and spike scripts. `convert_claude_plan.py` turns the original HTML plan

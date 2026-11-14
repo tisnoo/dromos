@@ -76,6 +76,71 @@ runs and the next 7 days. Only one Google account can sign in. To set it up:
 
 Until all four are set the dashboard stays closed.
 
+## Feedback from Hermes
+
+Dromos can push to the [Hermes agent](https://hermes-agent.nousresearch.com/)'s webhook
+platform, and Hermes turns each event into a message (e.g. on Telegram):
+
+- **New run** (route `dromos-run`): within the hour after a run syncs, with the run, what was
+  planned that day, the week so far and last night's sleep. Only runs from today and
+  yesterday are sent, so a backfill stays quiet.
+- **Daily brief** (route `dromos-daily`): at 06:00 in `DROMOS_TIMEZONE`, after a fresh sync,
+  with today's session, the 7 days ahead, yesterday's runs, the week so far, last night's sleep
+  and HRV, and heart-rate targets.
+
+Each payload carries the data itself (webhook runs in Hermes don't get MCP tools by
+default), and stays under the 4000 characters Hermes passes on as `{__raw__}`. Requests are
+signed with Hermes' generic V2 HMAC scheme.
+
+1. In Hermes, enable the webhook platform and add the two routes to `~/.hermes/config.yaml`,
+   with one shared secret (`openssl rand -hex 32`):
+
+   ```yaml
+   platforms:
+     webhook:
+       enabled: true
+       extra:
+         port: 8644
+         routes:
+           dromos-run:
+             events: ["run_ingested"]
+             secret: "<secret>"
+             signature: generic
+             deliver: telegram
+             mirror_to_session: true  # so you can reply to it in the chat
+             toolsets: []             # the payload has the data; no tools needed
+             prompt: |
+               You're my marathon coach. A run just synced from my Garmin. Give short
+               feedback: did it match the planned session (distance, zone, HR targets)?
+               Easy and long runs should stay easy. Mention sleep if it explains the run.
+               {__raw__}
+           dromos-daily:
+             events: ["daily_brief"]
+             secret: "<secret>"
+             signature: generic
+             deliver: telegram
+             mirror_to_session: true
+             toolsets: []
+             prompt: |
+               You're my marathon coach. Send my morning brief: what to do today (session,
+               distance, HR target), adjusted for last night's sleep and HRV against my
+               baseline. Say it plainly if I should ease off. Keep it short.
+               {__raw__}
+   ```
+
+   Hermes on the same server: the compose file maps `host.docker.internal` to the host, and
+   the firewall must let Docker networks reach the port:
+   `ufw allow from 172.16.0.0/12 to any port 8644 proto tcp`.
+2. Set `DROMOS_HERMES_WEBHOOK_URL` (the base URL of Hermes' webhooks as seen from the
+   Dromos container, e.g. `http://host.docker.internal:8644/webhooks`), `DROMOS_HERMES_WEBHOOK_SECRET`
+   and `DROMOS_TIMEZONE` (e.g. `Europe/Amsterdam`) in `/opt/dromos/.env`, and restart.
+3. Check it: `docker compose exec app python -m dromos brief` sends today's brief now
+   (`--print` shows the payload without sending).
+
+With `mirror_to_session`, replying to a message in Telegram continues from it. For Hermes
+to use Dromos in chat, add it under `mcp_servers` in Hermes' `config.yaml` with
+`url: <DROMOS_BASE_URL>/mcp` and `headers: {Authorization: "Bearer ${DROMOS_API_TOKEN}"}`.
+
 ## Deploying
 
 Pushes to `main` run the tests, build an image to GHCR and deploy it over SSH to

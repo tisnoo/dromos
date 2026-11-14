@@ -93,3 +93,15 @@ def test_sync_job_still_syncs_sleep_when_runs_fail(monkeypatch, caplog, tmp_path
     ingest.sync_job()
     assert "Garmin sync failed (runs)" in caplog.text
     assert len(client.sleep_calls) == 1  # just today
+
+
+def test_sync_job_passes_new_runs_to_notify(monkeypatch, tmp_path):
+    monkeypatch.setenv("DROMOS_DB", str(tmp_path / "dromos.db"))
+    client = FakeGarmin([raw_run(1, f"{date.today()} 07:00:00")])
+    monkeypatch.setattr(ingest.garmin, "connect", lambda **kwargs: client)
+    monkeypatch.setattr(ingest, "SLEEP_INITIAL_LOOKBACK_DAYS", 0)
+    notified = []
+    monkeypatch.setattr(ingest.notify, "notify_new_runs", lambda conn, runs: notified.extend(runs))
+    ingest.sync_job()
+    ingest.sync_job()  # nothing new the second time
+    assert [r.garmin_id for r in notified] == [1]
