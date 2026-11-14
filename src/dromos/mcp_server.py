@@ -24,7 +24,10 @@ planned with what was actually run.
 - Plan weeks run Monday to Sunday. Days without sessions are rest days. Taper weeks are locked.
 - Zones are the three-zone research model: Z1 below LT1 (easy), Z2 between LT1 and LT2
   (marathon pace, tempo), Z3 above LT2. Garmin's hr_zone_minutes use Garmin's 5 zones.
-- Gym sessions are in the plan, but only runs are recorded so far.
+- Gym sessions are in the plan, but only runs and sleep are recorded so far.
+- Sleep is per night, dated by the morning it ended, with Garmin's sleep score (0-100),
+  stages, resting HR, overnight HRV and Body Battery recovered. Low scores, a falling HRV or
+  a resting HR well above normal for several days are signs of fatigue: suggest easing off.
 - Changing the plan is propose → apply. propose_replan rebuilds the weeks after today from
   recent load; propose_plan_change edits specific weeks (e.g. moving or dropping sessions).
   Both are checked against the plan's rules; show the user the proposal (and any violations)
@@ -96,6 +99,7 @@ def create_mcp(base_url: str, provider: DromosOAuthProvider) -> MCPServer:
             "days_to_race": (race - today).days if race else None,
             "current_week": week,
             "this_week": _query(training.compare_week, week, today) if week else None,
+            "last_night": next(iter(_query(training.sleep, today, today)), None),
         }
 
     @mcp.tool(annotations=READ_ONLY)
@@ -107,6 +111,15 @@ def create_mcp(base_url: str, provider: DromosOAuthProvider) -> MCPServer:
         end = end_date or date.today()
         start = start_date or end - timedelta(days=27)
         return {"runs": _query(training.activities, start, end)}
+
+    @mcp.tool(annotations=READ_ONLY)
+    def get_sleep(start_date: date | None = None, end_date: date | None = None) -> dict[str, Any]:
+        """Nights recorded by Garmin between two dates (inclusive), by the morning they ended,
+        oldest first: sleep score, stages, resting HR, HRV, Body Battery. Defaults to the
+        last 14 days."""
+        end = end_date or date.today()
+        start = start_date or end - timedelta(days=13)
+        return {"nights": _query(training.sleep, start, end)}
 
     @mcp.tool(annotations=READ_ONLY)
     def get_plan(start_date: date | None = None, end_date: date | None = None) -> dict[str, Any]:

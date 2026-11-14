@@ -20,7 +20,7 @@ def main() -> None:
     sync.add_argument(
         "--since",
         type=date.fromisoformat,
-        help="backfill from this date (default: just before the latest stored run)",
+        help="backfill runs and sleep from this date (default: just before the latest stored)",
     )
     commands.add_parser("worker", help="sync every hour until stopped")
     import_plan = commands.add_parser("import-plan", help="load a training plan JSON file")
@@ -44,11 +44,14 @@ def main() -> None:
 
     if args.command == "sync":
         conn = db.connect()
-        new_runs = ingest.sync(garmin.connect(), conn, since=args.since)
+        client = garmin.connect()
+        new_runs = ingest.sync(client, conn, since=args.since)
         total = conn.execute("SELECT COUNT(*) FROM activities").fetchone()[0]
         for run in new_runs:
             print(f"new: {run.start_time:%Y-%m-%d %H:%M} {run.distance_km:.2f} km")
         print(f"{len(new_runs)} new runs, {total} in the database")
+        new_nights = ingest.sync_sleep(client, conn, since=args.since)
+        print(f"{len(new_nights)} new nights of sleep")
     elif args.command == "import-plan":
         conn = db.connect()
         data = json.loads(args.path.read_text())

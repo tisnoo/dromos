@@ -1,10 +1,10 @@
 from datetime import date
 
-from conftest import raw_run
+from conftest import raw_run, raw_sleep
 from test_plan import make_plan
 
 from dromos import db, plan, training
-from dromos.garmin import normalise
+from dromos.garmin import normalise, normalise_sleep
 
 
 def load(conn):
@@ -64,3 +64,29 @@ def test_moved_run_counts_on_its_new_day(conn):
     assert [(r["date"], r["moved"]) for r in runs][-1] == ("2026-11-15", True)
     assert runs[-1]["start_time"].startswith("2026-11-16")
     assert training.activities(conn, date(2026, 11, 16), date(2026, 11, 16)) == []
+
+
+def test_sleep_formats_nights(conn):
+    for day in ("2026-11-12", "2026-11-13"):
+        raw = raw_sleep(day)
+        db.upsert_sleep(conn, normalise_sleep(raw), raw)
+    nights = training.sleep(conn, date(2026, 11, 13), date(2026, 11, 13))
+    assert nights == [
+        {
+            "date": "2026-11-13",
+            "score": 80,
+            "quality": "GOOD",
+            "hours": 7.5,
+            "deep_min": 90,
+            "light_min": 270,
+            "rem_min": 90,
+            "awake_min": 10,
+            "awake_count": 1,
+            "avg_sleep_stress": 15.0,
+            "resting_hr": 55.0,
+            "avg_overnight_hrv": 60.0,
+            "hrv_status": "BALANCED",
+            "body_battery_change": 50.0,
+            "feedback": "POSITIVE_LONG_AND_DEEP",
+        }
+    ]

@@ -7,7 +7,7 @@ talk to it through MCP clients (Claude custom connector, Hermes agent).
 **Status:** Phase 5 (re-planning) built: MCP tools behind OAuth read runs and the plan, and
 propose/apply plan changes through the rules validator.
 Off-server backups still open. v1 scope is Garmin
-running data only; gym/strength data comes later.
+running and sleep data; gym/strength data comes later.
 
 ## Commands
 
@@ -15,7 +15,7 @@ running data only; gym/strength data comes later.
 python3 -m venv .venv && .venv/bin/pip install -e '.[dev]'   # setup
 .venv/bin/pytest                                             # tests
 .venv/bin/ruff check . && .venv/bin/ruff format .            # lint + format
-.venv/bin/python -m dromos sync [--since YYYY-MM-DD]         # pull runs from Garmin into SQLite
+.venv/bin/python -m dromos sync [--since YYYY-MM-DD]         # pull runs + sleep from Garmin
 .venv/bin/python -m dromos worker                            # hourly sync until stopped
 .venv/bin/python -m dromos import-plan data/plan.json        # load a plan (--replace to overwrite)
 .venv/bin/python -m dromos count-run-as 2026-11-07 2026-11-09 # count a run towards another day (omit 2nd date to undo)
@@ -31,7 +31,7 @@ server's existing Cloudflare Tunnel (public domain → `127.0.0.1:8000`); no web
 are open on the server:
 
 - **Ingestion:** hourly job (APScheduler, in-process) pulls new Garmin activities and upserts
-  them on `garmin_id`, so re-running is always safe.
+  them on `garmin_id`, and sleep upserted on `calendar_date`, so re-running is always safe.
 - **Storage:** SQLite (WAL mode). Single user, single server.
 - **MCP endpoint (`/mcp`):** official MCP Python SDK, streamable HTTP, mounted in FastAPI.
   This is the only way AI clients read or change data.
@@ -45,13 +45,16 @@ Compose, Cloudflare Tunnel, GitHub Actions → GHCR → SSH deploy.
 ### Code layout
 
 - `src/dromos/garmin.py`: Garmin login (persisted token store) and normalising raw activities
-  into `Run` records. `connect(interactive=False)` uses only the token store (for jobs)
+  into `Run` records and sleep responses into `Sleep` (only `dailySleepDTO` + a few summary
+  fields are stored; the per-minute series are dropped). `connect(interactive=False)` uses only the token store (for jobs)
 - `src/dromos/db.py`: SQLite connection (WAL), append-only `MIGRATIONS` list tracked with
   `PRAGMA user_version` (never edit an applied migration; add a new one), activity upsert.
   Path from `DROMOS_DB` (default `~/.dromos/dromos.db`). `count_as_date` on an activity moves
   it to another plan day; sync never overwrites it, `training.py` reads it
 - `src/dromos/ingest.py`: `sync()` fetches from 7 days before the latest stored run (or
-  365 days back on an empty DB) and upserts; `sync_job()` is the scheduled wrapper
+  365 days back on an empty DB) and upserts; `sync_sleep()` fetches one night per call from 2
+  days before the latest stored night (60 back on an empty DB); `sync_job()` runs both, so
+  one failing doesn't stop the other
 - `src/dromos/scheduler.py`: registers jobs on an APScheduler scheduler (hourly Garmin sync,
   nightly DB backup to `DROMOS_BACKUP_DIR`, keeps 14)
 - The app starts the scheduler in its lifespan, so always run it with a single worker.
@@ -59,7 +62,8 @@ Compose, Cloudflare Tunnel, GitHub Actions → GHCR → SSH deploy.
 - `src/dromos/plan.py`: plan JSON format (documented in the module), `validate()` for its
   structure, `import_plan()` which loads `plan_weeks` + `sessions` and logs to `plan_changes`.
   Days without sessions are rest days; taper weeks are imported `locked`
-- `src/dromos/training.py`: read-side queries (runs, plan, plan vs actual) returning plain dicts
+- `src/dromos/training.py`: read-side queries (runs, sleep, plan, plan vs actual) returning
+  plain dicts
 - `src/dromos/replan.py`: rules validator, deterministic `replan()`, and `propose()` /
   `apply()`. A change is a list of replacement weeks; tuning constants are at the top.
   `plan_weeks.original_*` keep the imported targets (re-planning never goes above them)

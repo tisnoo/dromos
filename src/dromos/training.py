@@ -44,6 +44,38 @@ def activities(conn: sqlite3.Connection, start: date, end: date) -> list[dict[st
     ]
 
 
+def _minutes(seconds: float | None) -> int | None:
+    return round(seconds / 60) if seconds is not None else None
+
+
+def sleep(conn: sqlite3.Connection, start: date, end: date) -> list[dict[str, Any]]:
+    """Nights between start and end, by the morning they ended."""
+    rows = conn.execute(
+        "SELECT * FROM sleep WHERE calendar_date BETWEEN ? AND ? ORDER BY calendar_date",
+        (start.isoformat(), end.isoformat()),
+    ).fetchall()
+    return [
+        {
+            "date": row["calendar_date"],
+            "score": row["score"],
+            "quality": row["quality"],
+            "hours": round(row["duration_s"] / 3600, 1),
+            "deep_min": _minutes(row["deep_s"]),
+            "light_min": _minutes(row["light_s"]),
+            "rem_min": _minutes(row["rem_s"]),
+            "awake_min": _minutes(row["awake_s"]),
+            "awake_count": row["awake_count"],
+            "avg_sleep_stress": row["avg_sleep_stress"],
+            "resting_hr": row["resting_hr"],
+            "avg_overnight_hrv": row["avg_overnight_hrv"],
+            "hrv_status": row["hrv_status"],
+            "body_battery_change": row["body_battery_change"],
+            "feedback": row["feedback"],
+        }
+        for row in rows
+    ]
+
+
 def _sessions(conn: sqlite3.Connection, week_id: int) -> list[dict[str, Any]]:
     rows = conn.execute(
         "SELECT * FROM sessions WHERE week_id = ? ORDER BY date, id", (week_id,)

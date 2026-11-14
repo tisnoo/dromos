@@ -1,4 +1,4 @@
-"""Garmin Connect access: login with a persisted token store, fetch and normalise runs."""
+"""Garmin Connect access: login with a persisted token store, fetch and normalise runs and sleep."""
 
 import os
 from dataclasses import dataclass
@@ -22,6 +22,25 @@ class Run:
     avg_hr: float | None
     max_hr: float | None
     hr_zone_seconds: dict[int, float]
+
+
+@dataclass(frozen=True)
+class Sleep:
+    calendar_date: date  # the morning the night ended
+    score: int | None
+    quality: str | None  # Garmin's qualifier for the score: EXCELLENT, GOOD, FAIR, POOR
+    duration_s: float
+    deep_s: float | None
+    light_s: float | None
+    rem_s: float | None
+    awake_s: float | None
+    awake_count: int | None
+    avg_sleep_stress: float | None
+    resting_hr: float | None
+    avg_overnight_hrv: float | None
+    hrv_status: str | None
+    body_battery_change: float | None
+    feedback: str | None
 
 
 def connect(tokenstore: str | None = None, interactive: bool = True) -> Garmin:
@@ -69,4 +88,45 @@ def normalise(raw: dict[str, Any]) -> Run:
             for zone in range(1, 6)
             if raw.get(f"hrTimeInZone_{zone}") is not None
         },
+    )
+
+
+def fetch_raw_sleep(client: Garmin, day: date) -> dict[str, Any]:
+    return client.get_sleep_data(day.isoformat())
+
+
+# Top-level fields kept alongside dailySleepDTO; the rest are large per-minute series.
+SLEEP_SUMMARY_FIELDS = ("restingHeartRate", "avgOvernightHrv", "hrvStatus", "bodyBatteryChange")
+
+
+def sleep_summary(raw: dict[str, Any]) -> dict[str, Any]:
+    """The part of a sleep response worth storing."""
+    return {
+        "dailySleepDTO": raw.get("dailySleepDTO") or {},
+        **{k: raw.get(k) for k in SLEEP_SUMMARY_FIELDS},
+    }
+
+
+def normalise_sleep(raw: dict[str, Any]) -> Sleep | None:
+    """None when there is no recorded night (watch not worn, or not synced yet)."""
+    dto = raw.get("dailySleepDTO") or {}
+    if not dto.get("calendarDate") or not dto.get("sleepTimeSeconds"):
+        return None
+    overall = (dto.get("sleepScores") or {}).get("overall") or {}
+    return Sleep(
+        calendar_date=date.fromisoformat(dto["calendarDate"]),
+        score=overall.get("value"),
+        quality=overall.get("qualifierKey"),
+        duration_s=dto["sleepTimeSeconds"],
+        deep_s=dto.get("deepSleepSeconds"),
+        light_s=dto.get("lightSleepSeconds"),
+        rem_s=dto.get("remSleepSeconds"),
+        awake_s=dto.get("awakeSleepSeconds"),
+        awake_count=dto.get("awakeCount"),
+        avg_sleep_stress=dto.get("avgSleepStress"),
+        resting_hr=raw.get("restingHeartRate"),
+        avg_overnight_hrv=raw.get("avgOvernightHrv"),
+        hrv_status=raw.get("hrvStatus"),
+        body_battery_change=raw.get("bodyBatteryChange"),
+        feedback=dto.get("sleepScoreFeedback"),
     )

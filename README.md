@@ -49,7 +49,7 @@ On the server, copy the file to `/opt/dromos/data/` and run
 ## Connecting AI clients
 
 The MCP endpoint is `<DROMOS_BASE_URL>/mcp`. Read tools: `get_training_status`,
-`get_activities`, `get_plan`, `compare_plan_vs_actual`, `get_plan_changes`. Plan changes:
+`get_activities`, `get_sleep`, `get_plan`, `compare_plan_vs_actual`, `get_plan_changes`. Plan changes:
 `propose_replan` and `propose_plan_change` return a checked proposal; `apply_plan_change`
 writes it once you agree.
 

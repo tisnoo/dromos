@@ -1,6 +1,8 @@
-from datetime import datetime
+from datetime import date, datetime
 
-from dromos.garmin import normalise
+from conftest import raw_sleep
+
+from dromos.garmin import normalise, normalise_sleep, sleep_summary
 
 RAW = {
     "activityId": 123456789,
@@ -32,3 +34,17 @@ def test_normalise_handles_missing_distance_and_hr():
     assert run.avg_pace_s_per_km is None
     assert run.avg_hr is None
     assert 1 not in run.hr_zone_seconds
+
+
+def test_normalise_sleep():
+    raw = raw_sleep("2026-11-13", score=81)
+    night = normalise_sleep(raw)
+    assert night.calendar_date == date(2026, 11, 13)
+    assert (night.score, night.quality, night.duration_s) == (81, "GOOD", 27000)
+    assert (night.resting_hr, night.avg_overnight_hrv, night.hrv_status) == (55, 60.0, "BALANCED")
+    assert "sleepLevels" not in sleep_summary(raw)
+
+
+def test_normalise_sleep_without_a_night():
+    assert normalise_sleep({"dailySleepDTO": {"calendarDate": "2026-11-13"}}) is None
+    assert normalise_sleep({}) is None

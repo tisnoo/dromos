@@ -132,6 +132,7 @@ def test_oauth_flow_then_tools(client):
         "get_activities",
         "get_plan",
         "compare_plan_vs_actual",
+        "get_sleep",
         "get_plan_changes",
         "propose_replan",
         "propose_plan_change",

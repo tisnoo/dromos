@@ -1,4 +1,4 @@
-"""SQLite storage: connection setup, schema migrations, backups and activity upserts."""
+"""SQLite storage: connection setup, schema migrations, backups, activity and sleep upserts."""
 
 import json
 import os
@@ -7,7 +7,7 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
-from dromos.garmin import Run
+from dromos.garmin import Run, Sleep
 
 DEFAULT_DB = "~/.dromos/dromos.db"
 
@@ -90,6 +90,28 @@ MIGRATIONS = [
     ALTER TABLE plan_weeks ADD COLUMN original_target_km REAL;
     ALTER TABLE plan_weeks ADD COLUMN original_long_run_km REAL;
     UPDATE plan_weeks SET original_target_km = target_km, original_long_run_km = long_run_km;
+    """,
+    """
+    CREATE TABLE sleep (
+        calendar_date TEXT PRIMARY KEY,
+        score INTEGER,
+        quality TEXT,
+        duration_s REAL NOT NULL,
+        deep_s REAL,
+        light_s REAL,
+        rem_s REAL,
+        awake_s REAL,
+        awake_count INTEGER,
+        avg_sleep_stress REAL,
+        resting_hr REAL,
+        avg_overnight_hrv REAL,
+        hrv_status TEXT,
+        body_battery_change REAL,
+        feedback TEXT,
+        raw TEXT NOT NULL,
+        ingested_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    );
     """,
 ]
 
@@ -190,6 +212,43 @@ def set_count_as_date(conn: sqlite3.Connection, run_date: date, count_as: date |
             (count_as.isoformat() if count_as else None, garmin_id),
         )
     return garmin_id
+
+
+SLEEP_COLUMNS = (
+    "score", "quality", "duration_s", "deep_s", "light_s", "rem_s", "awake_s", "awake_count",
+    "avg_sleep_stress", "resting_hr", "avg_overnight_hrv", "hrv_status", "body_battery_change",
+    "feedback",
+)  # fmt: skip
+
+
+def upsert_sleep(conn: sqlite3.Connection, sleep: Sleep, raw: dict[str, Any]) -> bool:
+    """Insert or update a night by calendar_date (Garmin can revise a score later that day).
+    Returns True if it was new."""
+    now = datetime.now().isoformat(timespec="seconds")
+    day = sleep.calendar_date.isoformat()
+    exists = conn.execute("SELECT 1 FROM sleep WHERE calendar_date = ?", (day,)).fetchone()
+    columns = ", ".join(SLEEP_COLUMNS)
+    updates = ", ".join(f"{c} = excluded.{c}" for c in (*SLEEP_COLUMNS, "raw", "updated_at"))
+    conn.execute(
+        f"""
+        INSERT INTO sleep (calendar_date, {columns}, raw, ingested_at, updated_at)
+        VALUES ({", ".join("?" * (len(SLEEP_COLUMNS) + 4))})
+        ON CONFLICT (calendar_date) DO UPDATE SET {updates}
+        """,
+        (
+            day,
+            *(getattr(sleep, c) for c in SLEEP_COLUMNS),
+            json.dumps(raw, default=str),
+            now,
+            now,
+        ),
+    )
+    return exists is None
+
+
+def latest_sleep_date(conn: sqlite3.Connection) -> date | None:
+    row = conn.execute("SELECT MAX(calendar_date) FROM sleep").fetchone()
+    return date.fromisoformat(row[0]) if row[0] else None
 
 
 def latest_start_time(conn: sqlite3.Connection) -> datetime | None:
