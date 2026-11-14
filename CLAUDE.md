@@ -46,7 +46,9 @@ Compose, Cloudflare Tunnel, GitHub Actions → GHCR → SSH deploy.
 
 - `src/dromos/garmin.py`: Garmin login (persisted token store) and normalising raw activities
   into `Run` records and sleep responses into `Sleep` (only `dailySleepDTO` + a few summary
-  fields are stored; the per-minute series are dropped). `connect(interactive=False)` uses only the token store (for jobs)
+  fields are stored; the per-minute series are dropped). Each night's sleep fetch also pulls
+  that night's HRV summary (weekly average, baseline range). `run_details()` reads training
+  effect, load and running form from a run's stored raw JSON `connect(interactive=False)` uses only the token store (for jobs)
 - `src/dromos/db.py`: SQLite connection (WAL), append-only `MIGRATIONS` list tracked with
   `PRAGMA user_version` (never edit an applied migration; add a new one), activity upsert.
   Path from `DROMOS_DB` (default `~/.dromos/dromos.db`). `count_as_date` on an activity moves
@@ -62,8 +64,9 @@ Compose, Cloudflare Tunnel, GitHub Actions → GHCR → SSH deploy.
 - `src/dromos/plan.py`: plan JSON format (documented in the module), `validate()` for its
   structure, `import_plan()` which loads `plan_weeks` + `sessions` and logs to `plan_changes`.
   Days without sessions are rest days; taper weeks are imported `locked`
-- `src/dromos/training.py`: read-side queries (runs, sleep, plan, plan vs actual) returning
-  plain dicts
+- `src/dromos/training.py`: read-side queries (runs, sleep, plan, plan vs actual, heart-rate
+  targets) returning plain dicts. Targets come from the latest row in `thresholds` (lactate
+  threshold tests recorded over MCP; the user's watch can't estimate LT or training readiness)
 - `src/dromos/replan.py`: rules validator, deterministic `replan()`, and `propose()` /
   `apply()`. A change is a list of replacement weeks; tuning constants are at the top.
   `plan_weeks.original_*` keep the imported targets (re-planning never goes above them)

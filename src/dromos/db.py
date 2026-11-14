@@ -113,6 +113,19 @@ MIGRATIONS = [
         updated_at TEXT NOT NULL
     );
     """,
+    """
+    ALTER TABLE sleep ADD COLUMN hrv_weekly_avg REAL;
+    ALTER TABLE sleep ADD COLUMN hrv_baseline_low REAL;
+    ALTER TABLE sleep ADD COLUMN hrv_baseline_high REAL;
+    CREATE TABLE thresholds (
+        id INTEGER PRIMARY KEY,
+        tested_on TEXT NOT NULL,
+        lthr_bpm INTEGER NOT NULL,
+        pace_s_per_km REAL,
+        notes TEXT,
+        created_at TEXT NOT NULL
+    );
+    """,
 ]
 
 
@@ -217,7 +230,7 @@ def set_count_as_date(conn: sqlite3.Connection, run_date: date, count_as: date |
 SLEEP_COLUMNS = (
     "score", "quality", "duration_s", "deep_s", "light_s", "rem_s", "awake_s", "awake_count",
     "avg_sleep_stress", "resting_hr", "avg_overnight_hrv", "hrv_status", "body_battery_change",
-    "feedback",
+    "feedback", "hrv_weekly_avg", "hrv_baseline_low", "hrv_baseline_high",
 )  # fmt: skip
 
 
@@ -244,6 +257,28 @@ def upsert_sleep(conn: sqlite3.Connection, sleep: Sleep, raw: dict[str, Any]) ->
         ),
     )
     return exists is None
+
+
+def add_threshold(
+    conn: sqlite3.Connection,
+    tested_on: date,
+    lthr_bpm: int,
+    pace_s_per_km: float | None = None,
+    notes: str | None = None,
+) -> int:
+    """Record a lactate threshold test. The newest test is the one that counts."""
+    with conn:
+        return conn.execute(
+            "INSERT INTO thresholds (tested_on, lthr_bpm, pace_s_per_km, notes, created_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (
+                tested_on.isoformat(),
+                lthr_bpm,
+                pace_s_per_km,
+                notes,
+                datetime.now().isoformat(timespec="seconds"),
+            ),
+        ).lastrowid
 
 
 def latest_sleep_date(conn: sqlite3.Connection) -> date | None:

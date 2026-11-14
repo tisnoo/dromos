@@ -25,9 +25,16 @@ planned with what was actually run.
 - Zones are the three-zone research model: Z1 below LT1 (easy), Z2 between LT1 and LT2
   (marathon pace, tempo), Z3 above LT2. Garmin's hr_zone_minutes use Garmin's 5 zones.
 - Gym sessions are in the plan, but only runs and sleep are recorded so far.
+- Runs carry Garmin's training effect label (RECOVERY, AEROBIC_BASE, TEMPO,
+  LACTATE_THRESHOLD, VO2MAX, ...) and load: easy and long runs should come out as RECOVERY
+  or AEROBIC_BASE. Cadence, stride and ground contact describe running form.
 - Sleep is per night, dated by the morning it ended, with Garmin's sleep score (0-100),
-  stages, resting HR, overnight HRV and Body Battery recovered. Low scores, a falling HRV or
-  a resting HR well above normal for several days are signs of fatigue: suggest easing off.
+  stages, resting HR, overnight HRV against the user's own HRV baseline range, and Body
+  Battery recovered. Low scores, HRV below the baseline or a resting HR well above normal for
+  several days are signs of fatigue: suggest easing off.
+- Heart-rate targets come from the latest lactate threshold test (the watch can't estimate
+  one). Without a test, suggest one: a 30 min solo all-out run on flat ground, where the
+  average HR of the last 20 min is the LTHR; record it with record_threshold_test.
 - Changing the plan is propose → apply. propose_replan rebuilds the weeks after today from
   recent load; propose_plan_change edits specific weeks (e.g. moving or dropping sessions).
   Both are checked against the plan's rules; show the user the proposal (and any violations)
@@ -100,6 +107,7 @@ def create_mcp(base_url: str, provider: DromosOAuthProvider) -> MCPServer:
             "current_week": week,
             "this_week": _query(training.compare_week, week, today) if week else None,
             "last_night": next(iter(_query(training.sleep, today, today)), None),
+            "heart_rate_targets": _query(training.heart_rate_targets),
         }
 
     @mcp.tool(annotations=READ_ONLY)
@@ -138,6 +146,19 @@ def create_mcp(base_url: str, provider: DromosOAuthProvider) -> MCPServer:
         if number is None:
             raise ValueError("Today is outside the plan; pass a week number")
         return _query(training.compare_week, number, today)
+
+    @mcp.tool(annotations=PROPOSE)
+    def record_threshold_test(
+        lthr_bpm: int = Field(ge=120, le=220, description="Avg HR over the last 20 min"),
+        tested_on: date | None = None,
+        lt_pace: str | None = Field(None, description='Avg pace over the last 20 min, "m:ss"'),
+        notes: str | None = None,
+    ) -> dict[str, Any]:
+        """Record a lactate threshold test result. Heart-rate targets (easy cap, tempo range)
+        are then based on it. Defaults to today."""
+        pace = training.parse_pace(lt_pace) if lt_pace else None
+        _query(db.add_threshold, tested_on or date.today(), lthr_bpm, pace, notes)
+        return {"heart_rate_targets": _query(training.heart_rate_targets)}
 
     @mcp.tool(annotations=READ_ONLY)
     def get_plan_changes(limit: int = 10) -> dict[str, Any]:

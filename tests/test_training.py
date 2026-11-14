@@ -88,5 +88,37 @@ def test_sleep_formats_nights(conn):
             "hrv_status": "BALANCED",
             "body_battery_change": 50.0,
             "feedback": "POSITIVE_LONG_AND_DEEP",
+            "hrv_weekly_avg": 58.0,
+            "hrv_baseline": [50.0, 80.0],
         }
     ]
+
+
+def test_activities_include_garmin_run_details(conn):
+    raw = raw_run(
+        1,
+        "2026-11-13 10:00:00",
+        aerobicTrainingEffect=5.0,
+        trainingEffectLabel="LACTATE_THRESHOLD",
+        activityTrainingLoad=138.60275,
+        averageRunningCadenceInStepsPerMinute=139.09375,
+    )
+    db.upsert_activity(conn, normalise(raw), raw)
+    run = training.activities(conn, date(2026, 11, 13), date(2026, 11, 13))[0]
+    assert run["training_effect_label"] == "LACTATE_THRESHOLD"
+    assert (run["aerobic_training_effect"], run["training_load"]) == (5.0, 138.6)
+    assert run["cadence_spm"] == 139.1
+    assert run["vo2max"] is None
+
+
+def test_heart_rate_targets_follow_the_latest_test(conn):
+    assert training.heart_rate_targets(conn) is None
+    db.add_threshold(conn, date(2026, 11, 1), 170)
+    db.add_threshold(conn, date(2026, 12, 1), 180, training.parse_pace("5:10"))
+    assert training.heart_rate_targets(conn) == {
+        "lthr_bpm": 180,
+        "lt_pace": "5:10/km",
+        "tested_on": "2026-12-01",
+        "easy_max_bpm": 160,
+        "tempo_bpm": [171, 178],
+    }

@@ -41,6 +41,9 @@ class Sleep:
     hrv_status: str | None
     body_battery_change: float | None
     feedback: str | None
+    hrv_weekly_avg: float | None = None
+    hrv_baseline_low: float | None = None  # Garmin's balanced range for this user
+    hrv_baseline_high: float | None = None
 
 
 def connect(tokenstore: str | None = None, interactive: bool = True) -> Garmin:
@@ -92,11 +95,20 @@ def normalise(raw: dict[str, Any]) -> Run:
 
 
 def fetch_raw_sleep(client: Garmin, day: date) -> dict[str, Any]:
-    return client.get_sleep_data(day.isoformat())
+    """Sleep for the night ending on `day`, with that night's HRV summary under "hrvSummary"."""
+    raw = client.get_sleep_data(day.isoformat())
+    hrv = client.get_hrv_data(day.isoformat()) or {}
+    return {**raw, "hrvSummary": hrv.get("hrvSummary")}
 
 
 # Top-level fields kept alongside dailySleepDTO; the rest are large per-minute series.
-SLEEP_SUMMARY_FIELDS = ("restingHeartRate", "avgOvernightHrv", "hrvStatus", "bodyBatteryChange")
+SLEEP_SUMMARY_FIELDS = (
+    "restingHeartRate",
+    "avgOvernightHrv",
+    "hrvStatus",
+    "bodyBatteryChange",
+    "hrvSummary",
+)
 
 
 def sleep_summary(raw: dict[str, Any]) -> dict[str, Any]:
@@ -113,6 +125,8 @@ def normalise_sleep(raw: dict[str, Any]) -> Sleep | None:
     if not dto.get("calendarDate") or not dto.get("sleepTimeSeconds"):
         return None
     overall = (dto.get("sleepScores") or {}).get("overall") or {}
+    hrv = raw.get("hrvSummary") or {}
+    baseline = hrv.get("baseline") or {}
     return Sleep(
         calendar_date=date.fromisoformat(dto["calendarDate"]),
         score=overall.get("value"),
@@ -129,4 +143,35 @@ def normalise_sleep(raw: dict[str, Any]) -> Sleep | None:
         hrv_status=raw.get("hrvStatus"),
         body_battery_change=raw.get("bodyBatteryChange"),
         feedback=dto.get("sleepScoreFeedback"),
+        hrv_weekly_avg=hrv.get("weeklyAvg"),
+        hrv_baseline_low=baseline.get("balancedLow"),
+        hrv_baseline_high=baseline.get("balancedUpper"),
     )
+
+
+# Per-run fields from the activity JSON beyond what `Run` keeps: Garmin's own verdict on the
+# run (training effect, load) and running form. Read from the stored raw JSON, so older runs
+# have them too.
+RUN_DETAIL_FIELDS = {
+    "aerobic_training_effect": "aerobicTrainingEffect",
+    "anaerobic_training_effect": "anaerobicTrainingEffect",
+    "training_effect_label": "trainingEffectLabel",
+    "training_load": "activityTrainingLoad",
+    "cadence_spm": "averageRunningCadenceInStepsPerMinute",
+    "stride_length_cm": "avgStrideLength",
+    "ground_contact_ms": "avgGroundContactTime",
+    "vertical_oscillation_cm": "avgVerticalOscillation",
+    "avg_power_w": "avgPower",
+    "elevation_gain_m": "elevationGain",
+    "vo2max": "vO2MaxValue",
+    "body_battery_change": "differenceBodyBattery",
+}
+
+
+def run_details(raw: dict[str, Any]) -> dict[str, Any]:
+    """Training effect, load and running form from a raw activity; missing ones are None."""
+    details = {}
+    for name, key in RUN_DETAIL_FIELDS.items():
+        value = raw.get(key)
+        details[name] = round(value, 1) if isinstance(value, float) else value
+    return details

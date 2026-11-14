@@ -134,12 +134,18 @@ def test_oauth_flow_then_tools(client):
         "compare_plan_vs_actual",
         "get_sleep",
         "get_plan_changes",
+        "record_threshold_test",
         "propose_replan",
         "propose_plan_change",
         "apply_plan_change",
     }
     writes = {t["name"] for t in tools if not t["annotations"]["readOnlyHint"]}
-    assert writes == {"propose_replan", "propose_plan_change", "apply_plan_change"}
+    assert writes == {
+        "propose_replan",
+        "propose_plan_change",
+        "apply_plan_change",
+        "record_threshold_test",
+    }
 
     result = call(
         client,
@@ -230,3 +236,22 @@ def test_propose_and_apply_plan_changes(client, tmp_path):
     assert [c["status"] for c in changes[:4]] == ["applied", "applied", "rejected", "applied"]
     assert changes[0]["source"] == "hermes"
     assert changes[3]["summary"]["action"] == "import"
+
+
+def test_record_threshold_test_sets_targets(client):
+    result = tool(
+        client,
+        "record_threshold_test",
+        {"lthr_bpm": 175, "tested_on": "2026-11-20", "lt_pace": "5:30"},
+    )
+    targets = result["heart_rate_targets"]
+    assert (targets["easy_max_bpm"], targets["lt_pace"]) == (156, "5:30/km")
+    assert tool(client, "get_training_status", {})["heart_rate_targets"] == targets
+
+    rejected = call(
+        client,
+        "hermes-token",
+        "tools/call",
+        {"name": "record_threshold_test", "arguments": {"lthr_bpm": 40}},
+    ).json()["result"]
+    assert rejected["isError"]

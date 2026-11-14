@@ -12,6 +12,9 @@ class FakeGarmin:
         self.calls = []
         self.sleep_calls = []
 
+    def get_hrv_data(self, cdate):
+        return None
+
     def get_sleep_data(self, cdate):
         self.sleep_calls.append(cdate)
         return self.nights.get(cdate, {"dailySleepDTO": {"calendarDate": cdate}})

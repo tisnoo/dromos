@@ -38,6 +38,12 @@ def raw_sleep(day: str, score: int = 80, **extra) -> dict:
         "avgOvernightHrv": 60.0,
         "hrvStatus": "BALANCED",
         "bodyBatteryChange": 50,
+        "hrvSummary": {
+            "weeklyAvg": 58,
+            "lastNightAvg": 60,
+            "status": "BALANCED",
+            "baseline": {"lowUpper": 45, "balancedLow": 50, "balancedUpper": 80},
+        },
         **extra,
     }
 

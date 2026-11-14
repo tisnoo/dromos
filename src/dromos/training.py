@@ -5,7 +5,12 @@ import sqlite3
 from datetime import date, timedelta
 from typing import Any
 
+from dromos.garmin import run_details
+
 RUN_SESSION_TYPES = ("easy", "tempo", "marathon_pace", "interval", "long", "race")
+# Heart-rate targets as a share of lactate threshold HR, as the plan's session notes use them.
+EASY_MAX_LTHR = 0.89
+TEMPO_LTHR = (0.95, 0.99)
 
 
 def fmt_pace(seconds_per_km: float | None) -> str | None:
@@ -39,9 +44,31 @@ def activities(conn: sqlite3.Connection, start: date, end: date) -> list[dict[st
                 f"Z{zone}": round(seconds / 60, 1)
                 for zone, seconds in json.loads(row["hr_zone_seconds"]).items()
             },
+            **run_details(json.loads(row["raw"])),
         }
         for row in rows
     ]
+
+
+def parse_pace(pace: str) -> float:
+    """'5:30' (min:s per km) → seconds per km."""
+    minutes, _, seconds = pace.removesuffix("/km").partition(":")
+    return int(minutes) * 60 + int(seconds or 0)
+
+
+def heart_rate_targets(conn: sqlite3.Connection) -> dict[str, Any] | None:
+    """Targets from the latest lactate threshold test, or None when there is no test yet."""
+    row = conn.execute("SELECT * FROM thresholds ORDER BY tested_on DESC, id DESC").fetchone()
+    if row is None:
+        return None
+    lthr = row["lthr_bpm"]
+    return {
+        "lthr_bpm": lthr,
+        "lt_pace": fmt_pace(row["pace_s_per_km"]),
+        "tested_on": row["tested_on"],
+        "easy_max_bpm": round(lthr * EASY_MAX_LTHR),
+        "tempo_bpm": [round(lthr * TEMPO_LTHR[0]), round(lthr * TEMPO_LTHR[1])],
+    }
 
 
 def _minutes(seconds: float | None) -> int | None:
@@ -71,6 +98,12 @@ def sleep(conn: sqlite3.Connection, start: date, end: date) -> list[dict[str, An
             "hrv_status": row["hrv_status"],
             "body_battery_change": row["body_battery_change"],
             "feedback": row["feedback"],
+            "hrv_weekly_avg": row["hrv_weekly_avg"],
+            "hrv_baseline": (
+                [row["hrv_baseline_low"], row["hrv_baseline_high"]]
+                if row["hrv_baseline_low"] is not None
+                else None
+            ),
         }
         for row in rows
     ]
@@ -162,7 +195,16 @@ def compare_week(conn: sqlite3.Connection, number: int, today: date) -> dict[str
                 ]
                 or "rest",
                 "actual_runs": [
-                    {k: r[k] for k in ("distance_km", "duration_min", "avg_pace", "avg_hr")}
+                    {
+                        k: r[k]
+                        for k in (
+                            "distance_km",
+                            "duration_min",
+                            "avg_pace",
+                            "avg_hr",
+                            "training_effect_label",
+                        )
+                    }
                     for r in actual
                 ],
             }

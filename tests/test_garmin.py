@@ -42,6 +42,7 @@ def test_normalise_sleep():
     assert night.calendar_date == date(2026, 11, 13)
     assert (night.score, night.quality, night.duration_s) == (81, "GOOD", 27000)
     assert (night.resting_hr, night.avg_overnight_hrv, night.hrv_status) == (55, 60.0, "BALANCED")
+    assert (night.hrv_weekly_avg, night.hrv_baseline_low, night.hrv_baseline_high) == (58, 50, 80)
     assert "sleepLevels" not in sleep_summary(raw)
 
 
