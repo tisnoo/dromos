@@ -69,9 +69,10 @@ runs and the next 7 days. Only one Google account can sign in. To set it up:
    OAuth consent screen (External, add yourself as a test user) and create an OAuth client
    ID of type *Web application* with the redirect URI
    `<DROMOS_BASE_URL>/dashboard/auth/callback`.
-2. Add to `/opt/dromos/.env`: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`,
-   `DROMOS_DASHBOARD_EMAIL` (your Google address) and `DROMOS_SESSION_SECRET`
-   (`openssl rand -hex 32`), then `docker compose up -d` in `/opt/dromos`.
+2. Run `scripts/set-dashboard-env.sh <ssh-host>`. It asks for the client ID, secret and
+   your Google address, generates `DROMOS_SESSION_SECRET`, writes them to
+   `/opt/dromos/.env` and restarts the app. Re-running keeps the session secret (pass
+   `--rotate-session` to sign out everywhere).
 
 Until all four are set the dashboard stays closed.
 
