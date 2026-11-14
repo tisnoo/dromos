@@ -1,0 +1,12 @@
+{% extends "_base.html" %}
+{% block style %}
+  .message { max-width: 360px; margin: 18vh auto 0; text-align: center; }
+  .message p { margin: 12px 0 20px; }
+{% endblock %}
+{% block body %}
+<div class="message">
+  <h1>Dromos</h1>
+  <p class="muted">{{ message }}</p>
+  {% if retry %}<a class="button" href="/dashboard/login">Sign in with Google</a>{% endif %}
+</div>
+{% endblock %}

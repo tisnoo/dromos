@@ -60,6 +60,21 @@ writes it once you agree.
 
 Both secrets live in `/opt/dromos/.env` on the server (see `.env.example`).
 
+## Dashboard
+
+`<DROMOS_BASE_URL>/dashboard` shows the week, weekly km against the plan, sleep, HRV, recent
+runs and the next 7 days. Only one Google account can sign in. To set it up:
+
+1. In [Google Cloud Console](https://console.cloud.google.com/apis/credentials), configure the
+   OAuth consent screen (External, add yourself as a test user) and create an OAuth client
+   ID of type *Web application* with the redirect URI
+   `<DROMOS_BASE_URL>/dashboard/auth/callback`.
+2. Add to `/opt/dromos/.env`: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`,
+   `DROMOS_DASHBOARD_EMAIL` (your Google address) and `DROMOS_SESSION_SECRET`
+   (`openssl rand -hex 32`), then `docker compose up -d` in `/opt/dromos`.
+
+Until all four are set the dashboard stays closed.
+
 ## Deploying
 
 Pushes to `main` run the tests, build an image to GHCR and deploy it over SSH to

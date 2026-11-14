@@ -1,0 +1,231 @@
+{% extends "_base.html" %}
+{% block title %}Dromos{% endblock %}
+{% block style %}
+  header { display: flex; align-items: center; justify-content: space-between; gap: 12px;
+           margin-bottom: 20px; flex-wrap: wrap; }
+  header form { margin: 0; }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(160px, 100%), 1fr));
+           gap: 12px; margin-bottom: 12px; }
+  .tile, .card { background: var(--surface); border: 1px solid var(--border);
+                 border-radius: 12px; padding: 16px; }
+  .tile .label { font-size: 13px; color: var(--text-2); }
+  .tile .value { font-size: 28px; font-weight: 600; letter-spacing: -0.02em;
+                 font-variant-numeric: tabular-nums; margin: 2px 0; }
+  .tile .value small { font-size: 15px; font-weight: 400; color: var(--text-2); }
+  .tile .note { font-size: 13px; color: var(--text-3); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(380px, 100%), 1fr));
+          gap: 12px; margin-bottom: 12px; }
+  .card { margin-bottom: 12px; min-width: 0; }
+  .grid .card { margin-bottom: 0; }
+  .card-head { display: flex; justify-content: space-between; align-items: baseline;
+               gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
+  .card-head h2 { margin: 0; }
+  .legend { display: flex; gap: 14px; font-size: 13px; color: var(--text-2); }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .swatch { width: 10px; height: 10px; border-radius: 2px; background: var(--series-1); }
+  .swatch.line { height: 2px; border-radius: 0; background: var(--reference); }
+  .swatch.series-line { height: 2px; border-radius: 0; }
+  .swatch.band { background: var(--band); }
+  svg.chart { width: 100%; height: auto; display: block; overflow: visible; }
+  svg.chart text { fill: var(--text-3); font-size: 12px; font-family: inherit; }
+  svg.chart .gridline { stroke: var(--grid); stroke-width: 1; }
+  svg.chart .bar { fill: var(--series-1); }
+  svg.chart .plan { stroke: var(--reference); stroke-width: 2; }
+  svg.chart .line { fill: none; stroke: var(--series-1); stroke-width: 2;
+                    stroke-linejoin: round; stroke-linecap: round; }
+  svg.chart .dot { fill: var(--series-1); stroke: var(--surface); stroke-width: 2; }
+  svg.chart .band { fill: var(--band); }
+  svg.chart .hit { fill: transparent; }
+  svg.chart .hit:hover { fill: var(--text); fill-opacity: 0.05; }
+  svg.chart .current { fill: var(--text); font-weight: 600; }
+  details { margin-top: 8px; font-size: 13px; color: var(--text-2); }
+  details summary { cursor: pointer; }
+  .scroll { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px;
+          font-variant-numeric: tabular-nums; }
+  th { text-align: left; font-weight: 500; color: var(--text-2); padding: 6px 8px;
+       border-bottom: 1px solid var(--border); white-space: nowrap; }
+  td { padding: 6px 8px; border-bottom: 1px solid var(--grid); white-space: nowrap; }
+  td.num, th.num { text-align: right; }
+  tr:last-child td { border-bottom: 0; }
+  .ok::before { content: "✓ "; color: var(--good); }
+  .sessions { list-style: none; margin: 0; padding: 0; }
+  .sessions li { display: grid; grid-template-columns: 96px 1fr; gap: 8px; padding: 8px 0;
+                 border-bottom: 1px solid var(--grid); }
+  .sessions li:last-child { border-bottom: 0; }
+  .sessions .notes { font-size: 13px; color: var(--text-2); }
+  .empty { color: var(--text-3); font-size: 13px; }
+{% endblock %}
+{% block body %}
+<header>
+  <div>
+    <h1>Dromos</h1>
+    <div class="muted small">{{ today.strftime("%A %d %B %Y") }}{% if this_week %} · week {{ this_week.week }}, {{ this_week.phase }}{% if this_week.flag %} ({{ this_week.flag }}){% endif %}{% endif %}</div>
+  </div>
+  <form method="post" action="/dashboard/logout"><button class="quiet" type="submit">Sign out</button></form>
+</header>
+
+<section class="tiles">
+  <div class="tile">
+    <div class="label">Race day</div>
+    <div class="value">{% if days_to_race is not none %}{{ days_to_race }} <small>days</small>{% else %}–{% endif %}</div>
+    <div class="note">{% if race %}{{ race.strftime("%d %B %Y") }}{% else %}No race in the plan{% endif %}</div>
+  </div>
+  <div class="tile">
+    <div class="label">This week</div>
+    {% if this_week %}
+    <div class="value">{{ "%g"|format(this_week.actual_km) }} <small>/ {{ "%g"|format(this_week.planned_km) }} km</small></div>
+    <div class="note">{{ "%g"|format(this_week.planned_km_so_far) }} km planned so far</div>
+    {% else %}<div class="value">–</div><div class="note">Outside the plan</div>{% endif %}
+  </div>
+  <div class="tile">
+    <div class="label">Sleep{% if latest_night and not last_night %} ({{ latest_night.date[5:] }}){% else %} last night{% endif %}</div>
+    {% if latest_night %}
+    <div class="value">{{ latest_night.score if latest_night.score is not none else "–" }} <small>{{ latest_night.hours }} h</small></div>
+    <div class="note">{{ (latest_night.quality or "")|capitalize }}{% if latest_night.resting_hr %} · resting HR {{ "%g"|format(latest_night.resting_hr) }}{% endif %}</div>
+    {% else %}<div class="value">–</div><div class="note">No sleep data yet</div>{% endif %}
+  </div>
+  <div class="tile">
+    <div class="label">HRV</div>
+    {% if latest_night and latest_night.avg_overnight_hrv is not none %}
+    <div class="value">{{ "%g"|format(latest_night.avg_overnight_hrv) }} <small>ms</small></div>
+    <div class="note">{% if latest_night.hrv_baseline %}Baseline {{ "%g"|format(latest_night.hrv_baseline[0]) }}–{{ "%g"|format(latest_night.hrv_baseline[1]) }}{% endif %}{% if latest_night.hrv_weekly_avg %} · 7-day {{ "%g"|format(latest_night.hrv_weekly_avg) }}{% endif %}</div>
+    {% else %}<div class="value">–</div><div class="note">No HRV data yet</div>{% endif %}
+  </div>
+  <div class="tile">
+    <div class="label">Easy runs under</div>
+    {% if targets %}
+    <div class="value">{{ targets.easy_max_bpm }} <small>bpm</small></div>
+    <div class="note">LTHR {{ targets.lthr_bpm }} ({{ targets.tested_on }}) · tempo {{ targets.tempo_bpm[0] }}–{{ targets.tempo_bpm[1] }}</div>
+    {% else %}<div class="value">–</div><div class="note">No threshold test recorded yet</div>{% endif %}
+  </div>
+</section>
+
+
+
+<div class="grid">
+{% if weekly %}
+<section class="card">
+  <div class="card-head">
+    <h2>Weekly distance</h2>
+    <div class="legend"><span><i class="swatch"></i>Actual</span><span><i class="swatch line"></i>Planned</span></div>
+  </div>
+  <svg class="chart" viewBox="0 0 480 200" role="img" aria-label="Actual and planned km per week">
+    {% for t in weekly.ticks %}
+    <line class="gridline" x1="32" x2="480" y1="{{ '%.1f'|format(t.y) }}" y2="{{ '%.1f'|format(t.y) }}"/>
+    <text x="24" y="{{ '%.1f'|format(t.y + 4) }}" text-anchor="end">{{ t.label }}</text>
+    {% endfor %}
+    {% for b in weekly.bars %}
+    {% if b.path %}<path class="bar" d="{{ b.path }}"/>{% endif %}
+    <line class="plan" x1="{{ '%.1f'|format(b.x - 4) }}" x2="{{ '%.1f'|format(b.x + b.width + 4) }}" y1="{{ '%.1f'|format(b.plan_y) }}" y2="{{ '%.1f'|format(b.plan_y) }}"/>
+    <text x="{{ '%.1f'|format(b.slot_x + b.slot / 2) }}" y="194" text-anchor="middle"{% if b.current %} class="current"{% endif %}>{{ b.label }}</text>
+    <rect class="hit" x="{{ '%.1f'|format(b.slot_x) }}" y="0" width="{{ '%.1f'|format(b.slot) }}" height="176"><title>{{ b.title }}</title></rect>
+    {% endfor %}
+  </svg>
+  <details><summary>Table</summary>
+    <div class="scroll"><table>
+      <tr><th>Week</th><th>Starts</th><th>Phase</th><th class="num">Planned km</th><th class="num">Actual km</th><th class="num">Longest run</th></tr>
+      {% for w in weeks %}
+      <tr><td>{{ w.week }}{% if w.flag %} · {{ w.flag }}{% endif %}</td><td>{{ w.start }}</td><td>{{ w.phase }}</td><td class="num">{{ "%g"|format(w.planned_km) }}</td><td class="num">{{ "%g"|format(w.actual_km) }}</td><td class="num">{{ "%g"|format(w.longest_actual_run_km) }}</td></tr>
+      {% endfor %}
+    </table></div>
+  </details>
+</section>
+{% endif %}
+  <section class="card">
+    <div class="card-head"><h2>Next 7 days</h2></div>
+    {% if upcoming %}
+    <ul class="sessions">
+      {% for s in upcoming %}
+      <li><span class="muted small">{{ s.weekday }}</span><span>{{ s.title }}{% if s.target_zone %} <span class="muted small">· {{ s.target_zone }}</span>{% endif %}{% if s.notes %}<div class="notes">{{ s.notes }}</div>{% endif %}</span></li>
+      {% endfor %}
+    </ul>
+    {% else %}<p class="empty">Nothing planned. Rest days.</p>{% endif %}
+  </section>
+</div>
+
+<div class="grid">
+  <section class="card">
+    <div class="card-head"><h2>Sleep score</h2><span class="muted small">last 14 nights</span></div>
+    <svg class="chart" viewBox="0 0 480 200" role="img" aria-label="Sleep score per night">
+      {% for t in sleep.ticks %}
+      <line class="gridline" x1="32" x2="480" y1="{{ '%.1f'|format(t.y) }}" y2="{{ '%.1f'|format(t.y) }}"/>
+      <text x="24" y="{{ '%.1f'|format(t.y + 4) }}" text-anchor="end">{{ t.label }}</text>
+      {% endfor %}
+      {% for b in sleep.bars %}
+      {% if b.path %}<path class="bar" d="{{ b.path }}"/>{% endif %}
+      {% if loop.index0 % 2 == 1 or loop.last %}<text x="{{ '%.1f'|format(b.slot_x + b.slot / 2) }}" y="194" text-anchor="middle">{{ b.label }}</text>{% endif %}
+      <rect class="hit" x="{{ '%.1f'|format(b.slot_x) }}" y="0" width="{{ '%.1f'|format(b.slot) }}" height="176"><title>{{ b.title }}</title></rect>
+      {% endfor %}
+    </svg>
+  </section>
+  <section class="card">
+    <div class="card-head">
+      <h2>Overnight HRV</h2>
+      <div class="legend"><span><i class="swatch series-line" style="background: var(--series-1)"></i>HRV</span><span><i class="swatch band"></i>Your normal range</span></div>
+    </div>
+    <svg class="chart" viewBox="0 0 480 200" role="img" aria-label="Overnight HRV per night against baseline range">
+      {% if hrv.band %}<polygon class="band" points="{{ hrv.band }}"/>{% endif %}
+      {% for t in hrv.ticks %}
+      <line class="gridline" x1="32" x2="480" y1="{{ '%.1f'|format(t.y) }}" y2="{{ '%.1f'|format(t.y) }}"/>
+      <text x="24" y="{{ '%.1f'|format(t.y + 4) }}" text-anchor="end">{{ t.label }}</text>
+      {% endfor %}
+      {% for line in hrv.lines %}<polyline class="line" points="{{ line }}"/>{% endfor %}
+      {% for p in hrv.points %}<circle class="dot" cx="{{ '%.1f'|format(p.x) }}" cy="{{ '%.1f'|format(p.y) }}" r="4"/>{% endfor %}
+      {% for c in hrv.columns %}
+      {% if loop.index0 % 2 == 1 or loop.last %}<text x="{{ '%.1f'|format(c.slot_x + c.slot / 2) }}" y="194" text-anchor="middle">{{ c.label }}</text>{% endif %}
+      <rect class="hit" x="{{ '%.1f'|format(c.slot_x) }}" y="0" width="{{ '%.1f'|format(c.slot) }}" height="176"><title>{{ c.title }}</title></rect>
+      {% endfor %}
+    </svg>
+  </section>
+</div>
+
+<div class="grid">
+
+  <section class="card">
+    <div class="card-head"><h2>Sleep detail</h2></div>
+    {% if nights %}
+    <div class="scroll"><table>
+      <tr><th>Night</th><th class="num">Score</th><th class="num">Hours</th><th class="num">Deep</th><th class="num">REM</th><th class="num">RHR</th><th class="num">HRV</th></tr>
+      {% for n in nights[:7] %}
+      <tr><td>{{ n.date }}</td><td class="num">{{ n.score if n.score is not none else "–" }}</td><td class="num">{{ n.hours }}</td><td class="num">{{ n.deep_min }}m</td><td class="num">{{ n.rem_min }}m</td><td class="num">{{ "%g"|format(n.resting_hr) if n.resting_hr else "–" }}</td><td class="num">{{ "%g"|format(n.avg_overnight_hrv) if n.avg_overnight_hrv else "–" }}</td></tr>
+      {% endfor %}
+    </table></div>
+    {% else %}<p class="empty">No sleep data yet.</p>{% endif %}
+  </section>
+</div>
+
+<section class="card">
+  <div class="card-head"><h2>Recent runs</h2><span class="muted small">last 4 weeks · ✓ = Garmin rated it easy</span></div>
+  {% if runs %}
+  <div class="scroll"><table>
+    <tr><th>Date</th><th class="num">km</th><th class="num">Time</th><th class="num">Pace</th><th class="num">Avg HR</th><th>Garmin effect</th><th class="num">Load</th><th class="num">Cadence</th><th class="num">Elev.</th></tr>
+    {% for r in runs %}
+    <tr>
+      <td>{{ r.date }}</td>
+      <td class="num">{{ "%.2f"|format(r.distance_km) }}</td>
+      <td class="num">{{ fmt_duration(r.duration_min) }}</td>
+      <td class="num">{{ r.avg_pace or "–" }}</td>
+      <td class="num">{{ "%g"|format(r.avg_hr) if r.avg_hr else "–" }}</td>
+      <td{% if r.training_effect_label in easy_labels %} class="ok"{% endif %}>{{ (r.training_effect_label or "–")|replace("_", " ")|capitalize }}{% if r.aerobic_training_effect %} <span class="muted">{{ r.aerobic_training_effect }}</span>{% endif %}</td>
+      <td class="num">{{ "%g"|format(r.training_load|round) if r.training_load else "–" }}</td>
+      <td class="num">{{ "%g"|format(r.cadence_spm|round) if r.cadence_spm else "–" }}</td>
+      <td class="num">{{ "%g"|format(r.elevation_gain_m|round) ~ "m" if r.elevation_gain_m else "–" }}</td>
+    </tr>
+    {% endfor %}
+  </table></div>
+  {% else %}<p class="empty">No runs in the last 4 weeks.</p>{% endif %}
+</section>
+
+{% if changes %}
+<section class="card">
+  <div class="card-head"><h2>Plan changes</h2></div>
+  <div class="scroll"><table>
+    <tr><th>When</th><th>Status</th><th>Reason</th><th class="num">Weeks</th></tr>
+    {% for c in changes %}
+    <tr><td>{{ c.created_at[:10] }}</td><td>{{ c.status }}</td><td style="white-space: normal">{{ c.reason }}</td><td class="num">{{ c.changes|length }}</td></tr>
+    {% endfor %}
+  </table></div>
+</section>
+{% endif %}
+{% endblock %}

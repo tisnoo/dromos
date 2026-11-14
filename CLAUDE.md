@@ -36,7 +36,7 @@ are open on the server:
 - **MCP endpoint (`/mcp`):** official MCP Python SDK, streamable HTTP, mounted in FastAPI.
   This is the only way AI clients read or change data.
 - **Dashboard (`/dashboard`):** server-rendered HTML (Jinja). Reads straight from the DB; there
-  is no AI in the dashboard.
+  is no AI in the dashboard. Google sign-in, limited to one address.
 - **Notifications:** Telegram message from the app when a new run is ingested.
 
 Planned stack: Python 3.12+, FastAPI, MCP Python SDK, SQLite, APScheduler, Jinja, Docker
@@ -76,6 +76,10 @@ Compose, Cloudflare Tunnel, GitHub Actions → GHCR → SSH deploy.
 - `src/dromos/auth.py`: single-user OAuth provider. claude.ai uses dynamic client registration,
   then the owner approves on `/oauth/login` with `DROMOS_OWNER_PASSWORD` (5 failures → 15 min
   lockout). Hermes sends `DROMOS_API_TOKEN` as a bearer token. Tokens are stored hashed
+- `src/dromos/dashboard.py` + `templates/`: the dashboard. Google OAuth code flow, only
+  `DROMOS_DASHBOARD_EMAIL` gets in; session is an HMAC-signed cookie (`DROMOS_SESSION_SECRET`).
+  Charts are inline SVG built in Python, no JavaScript (the CSP allows none). Closed (503)
+  unless all four dashboard settings are set
 - `src/dromos/app.py`: `create_app()` wires FastAPI routes (`/health`, login page) and mounts
   the MCP app (`/mcp` + OAuth endpoints) at `/`. MCP is stateless with JSON responses
 - `src/dromos/__main__.py`: CLI (`sync`, `worker`, `import-plan`)

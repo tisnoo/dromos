@@ -1,4 +1,5 @@
-"""The web app: health check, MCP endpoint (/mcp) with its OAuth routes, and the login page.
+"""The web app: health check, dashboard, MCP endpoint (/mcp) with its OAuth routes, and the
+login page.
 
 Runs the background jobs in-process, so it must be served by a single worker process.
 DROMOS_BASE_URL is the public URL (e.g. https://dromos.example.com); OAuth metadata and
@@ -17,7 +18,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from mcp.server.transport_security import TransportSecuritySettings
 
-from dromos import db
+from dromos import dashboard, db
 from dromos.auth import LOGIN_PATH, DromosOAuthProvider, LoginError
 from dromos.mcp_server import create_mcp
 from dromos.scheduler import add_jobs
@@ -134,6 +135,8 @@ def create_app(base_url: str | None = None) -> FastAPI:
                 return HTMLResponse(str(error), status_code=400, headers=PAGE_HEADERS)
             return _login_page(request_id, client, str(error), status=401)
         return RedirectResponse(redirect, status_code=303, headers={"Cache-Control": "no-store"})
+
+    app.include_router(dashboard.create_router(base_url))
 
     # Last, so the routes above win: /mcp plus the OAuth endpoints (/authorize, /token,
     # /register, /revoke, /.well-known/...) at the root.
